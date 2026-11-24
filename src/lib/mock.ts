@@ -203,6 +203,7 @@ export function mockSettings(): Settings {
     midOverride: null,
     outlierPct: 3,
     launchAtLogin: true,
+    theme: "system",
   };
 }
 

@@ -21,7 +21,7 @@ Built with **Tauri v2** (Rust backend) and **React 19 + TypeScript** frontend. N
 1. Every N seconds, fetch the best **buy USDT** offers priced in currency A and the best **sell USDT** offers priced in currency B.
 2. Rank the offers, apply your filters, and compute the implied cross rate `j`.
 3. Compare `j` with your threshold `R` and with the mid-market FX rate.
-4. If `j >= R` **and** a trade size exists that both counterparties will accept, activate the alert: green menu bar icon, live `j` beside it, a native notification and a macOS system sound.
+4. If `j >= R` **and** a trade size exists that both counterparties will accept, activate the alert: an accent-tinted menu bar icon, live `j` beside it, a native notification and a macOS system sound.
 5. Stay quiet until the opportunity disappears (`j < R` or the size becomes infeasible), so you get one alert per crossing, not one per poll.
 
 ## The cross-rate formula
@@ -77,15 +77,18 @@ Binance P2P is an open marketplace, so the top of the book is not always a real 
 ## Menu bar behaviour
 
 - **Live `j` next to the tray icon** — formatted for the magnitude of the rate (up to 4 decimal places, e.g. `2.9404`).
-- **Icon** — monochrome template icon when idle; **green** when an alert is active (unless the menu bar badge is disabled in settings).
+- **Icon** — monochrome template icon when idle (macOS tints it for the current appearance); when an alert is active the same glyph is painted with your macOS accent colour, unless the menu bar badge is disabled in settings.
 - **Tooltip** — pair, current `j`, and `ALERT` when active.
-- **Left click** — opens a 408×724 popup anchored under the icon; it hides automatically when it loses focus, like a native popover.
+- **Popup placement** — anchored directly under the menu bar icon: a tray click places it using the click position, everything else measures the status item's geometry, and if neither is available it falls back to the top-right corner of the active screen, just under the menu bar — never the centre of the display.
+- **When it opens** — on first launch (before a settings file exists), on a left click of the tray icon, from *Open CrossRate* in the tray menu, and whenever macOS activates the app while no window is visible (for example after clicking a notification).
+- **Left click** — opens the 408×724 popup; it hides automatically when it loses focus, like a native popover.
 - **Right click** — menu with *Open CrossRate*, *Refresh now*, *Settings…*, *Quit CrossRate*.
 - Running as a menu bar accessory app: no Dock icon and no app switcher entry; quit from the tray menu.
 
 ### What an alert says
 
-The notification leads with the **rate you can trade at**, not with internal variables:
+The notification leads with the **rate you can trade at**, not with internal variable names
+(`j`, `R`):
 
 > **AED → MAD · 2.931**
 > 10,000 AED buys 29,315 MAD. Bank rate 2.726 — +2,054 MAD (+7.5%) better.
@@ -95,6 +98,12 @@ the configurable **alert trade size** (default 10,000 of currency A) against the
 mid-market rate. The same wording is used by **Settings → Alerts → Test alert**, so you
 can judge the copy without waiting for a real opportunity.
 
+Clicking a CrossRate notification activates the app and opens the popup, so the alert
+copy and the market behind it are one click apart. macOS calls the app's reopen hook
+(`applicationShouldHandleReopen`) when an app is activated with no visible window; Tauri
+surfaces that as `RunEvent::Reopen`, and CrossRate handles it by showing the popup at its
+usual anchor.
+
 ### Which offer pair is used
 
 The cheapest buy ad and the most expensive sell ad are not always tradable at the same
@@ -103,7 +112,7 @@ best pair whose limits actually overlap — so the price you see is one you can 
 If no pair overlaps, the rate is still shown but the alert stays quiet and the popup
 explains why ("Rate is above your target but not tradable").
 
-Inside the popup: the current pair, a hero reading of the P2P rate against your target and the bank rate, the spread versus the bank, both leg cards with their best offer, the executable size, up to 8 ranked offers per leg, and the settings screen (pair picker, threshold, refresh, amount bands, per-leg filters, favourites, alert options, launch at login).
+Inside the popup: the current pair, a hero reading of the P2P rate against your target and the bank rate, the spread versus the bank, both leg cards with their best offer, the executable size, up to 8 ranked offers per leg, and the settings screen (pair picker, threshold, refresh, amount bands, per-leg filters, favourites, alert options, appearance, launch at login).
 
 ## Configuration
 
@@ -127,9 +136,12 @@ Settings are saved as JSON and applied on the next poll (a save wakes the pollin
 | Favourites | none | Highlighted only — they never bypass filters |
 | Notifications | on | Native notification centre |
 | Alert sound | on, `Glass` | Any of Glass, Ping, Submarine, Funk, Hero, Pop, Purr, Tink (`afplay`) |
-| Menu bar badge | on | Green icon while alerting |
+| Menu bar badge | on | Accent-tinted icon while alerting |
 | Launch at login | on | macOS LaunchAgent |
 | Mid-market override | off | Auto from the FX API; can be pinned manually |
+| Theme | `system` | `system` / `light` / `dark`; *system* follows the macOS appearance automatically (Settings → Pair → Appearance) |
+
+**Appearance.** The theme setting under **Settings → Pair → Appearance** is `system` (the default, which tracks the macOS appearance automatically as it changes), `light` or `dark`; there is no custom theming beyond that. The panel itself is a native macOS popover — a real `NSVisualEffectView` ("Popover") material applied in Rust behind a transparent webview — so the desktop shows through with the standard system blur, and it falls back to a solid system background when **Reduce Transparency** is on. Text and surfaces use macOS semantic colours and the SF system font, status colours are the system ones (green for profit, orange for warnings, red for errors), and controls plus the alerting menu bar icon take your own macOS accent colour from System Settings.
 
 The mid-market rate comes from `open.er-api.com` (keyless, ECB-derived), cached for 30 minutes with a 2-minute retry backoff after failures. Spread versus mid is `(j / mid - 1) × 100`.
 
@@ -223,6 +235,33 @@ Design notes: the Rust side performs all HTTP, so there are no CORS issues and n
 **The menu bar shows no rate.** It appears once both legs return usable offers. A tooltip of "waiting for data" plus the error text in the popup points at what is failing.
 
 **Where is my configuration?** `~/Library/Application Support/com.crossrate.desktop/settings.json` (atomic writes, readable JSON). Override the directory with `CROSSRATE_CONFIG_DIR` for testing. Set `CROSSRATE_NO_AUTOHIDE=1` if you do not want the popup to hide when it loses focus.
+
+### Diagnostics
+
+CrossRate can print what it is doing without a debugger attached. Two environment variables control it:
+
+| Variable | Effect |
+|---|---|
+| `CROSSRATE_LOG=1` | One `[crossrate] …` line per poll on stderr, plus the exact notification title and body whenever an alert fires |
+| `CROSSRATE_LOG_FILE=/tmp/crossrate.log` | Append the same lines to that file (works on its own; useful because a Finder-launched app has no terminal) |
+
+For the installed app, set the variables through launchd, quit CrossRate, and reopen it — a Finder launch inherits the launchd environment rather than your shell's:
+
+```bash
+launchctl setenv CROSSRATE_LOG 1
+launchctl setenv CROSSRATE_LOG_FILE /tmp/crossrate.log
+open -a /Applications/CrossRate.app
+tail -f /tmp/crossrate.log
+```
+
+A poll line reports the pair, `j`, `R`, each leg's best price with its passed/total offer counts, whether the alert is active, the executable USDT size (or the reason there is none) and any poll error. An alert is logged as `ALERT "<title>" | "<body>"` — the exact copy sent to Notification Centre — and the popup's computed position is logged when it opens, which makes placement problems visible.
+
+Turn it off again with:
+
+```bash
+launchctl unsetenv CROSSRATE_LOG
+launchctl unsetenv CROSSRATE_LOG_FILE
+```
 
 ## Limitations
 

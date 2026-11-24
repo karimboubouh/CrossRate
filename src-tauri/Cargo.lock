@@ -697,6 +697,7 @@ dependencies = [
  "tauri-plugin-notification",
  "thiserror 2.0.21",
  "tokio",
+ "window-vibrancy",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 //! CrossRate — Binance P2P cross-rate monitor for the macOS menu bar.
 
 mod alerts;
+mod appearance;
 mod binance;
 mod commands;
 mod engine;
@@ -31,10 +32,24 @@ pub fn run() {
             commands::test_alert,
             commands::hide_window,
             commands::quit_app,
+            commands::get_accent,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Native popover material behind the transparent webview, so the
+            // panel picks up the desktop and both appearances for free.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                let _ = apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::Popover,
+                    Some(NSVisualEffectState::Active),
+                    Some(12.0),
+                );
+            }
 
             let handle = app.handle().clone();
             let first_run = !settings::path(&handle).exists();
@@ -46,10 +61,9 @@ pub fn run() {
             commands::apply_autostart(&handle, wants_autostart);
 
             if first_run {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                // Anchored under the status item (falls back to the top-right
+                // corner), never the middle of the display.
+                tray::show_popup(&handle);
             }
 
             if let Some(window) = app.get_webview_window("main") {
@@ -75,12 +89,20 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("failed to build CrossRate")
-        .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+        .run(|app, event| match event {
+            // macOS calls applicationShouldHandleReopen when the app is
+            // activated with no visible windows — that is what happens when the
+            // user clicks a CrossRate notification.
+            tauri::RunEvent::Reopen { .. } => {
+                crate::util::log_line("reopen -> showing popup");
+                tray::show_popup(app);
+            }
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
                 // Closing the popup must not quit a menu bar app.
                 if code.is_none() {
                     api.prevent_exit();
                 }
             }
+            _ => {}
         });
 }

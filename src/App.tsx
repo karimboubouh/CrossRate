@@ -26,6 +26,27 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
 
+  // Adopt the real macOS accent colour so controls match System Settings.
+  useEffect(() => {
+    void api.getAccent().then((appearance) => {
+      const root = document.documentElement;
+      root.style.setProperty("--accent-light", appearance.accentLight);
+      root.style.setProperty("--accent-dark", appearance.accentDark);
+    });
+  }, []);
+
+  // Theme: follow the system unless the user pins light/dark.
+  useEffect(() => {
+    const root = document.documentElement;
+    const pinned = preview.get("theme");
+    const mode = pinned ?? settings?.theme ?? "system";
+    if (mode === "light" || mode === "dark") {
+      root.dataset.theme = mode;
+    } else {
+      delete root.dataset.theme;
+    }
+  }, [settings?.theme]);
+
   // Initial load + live wiring.
   useEffect(() => {
     void api.getSettings().then(setSettings);

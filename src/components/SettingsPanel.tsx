@@ -302,6 +302,20 @@ export function SettingsPanel({
               </Field>
             </Section>
 
+            <Section title="Appearance">
+              <Field label="Theme" hint="System follows your macOS appearance">
+                <Segmented
+                  value={draft.theme}
+                  options={[
+                    { value: "system", label: "System" },
+                    { value: "light", label: "Light" },
+                    { value: "dark", label: "Dark" },
+                  ]}
+                  onChange={(theme) => patch({ theme })}
+                />
+              </Field>
+            </Section>
+
             <Section title="Refresh">
               <Field label="Poll interval" hint="Seconds between Binance P2P checks">
                 <NumField

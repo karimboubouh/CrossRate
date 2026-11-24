@@ -7,27 +7,21 @@ interface IconProps {
 export function Logo({ size = 15 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <defs>
-        <linearGradient id="crLogo" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#3ddc97" />
-          <stop offset="100%" stopColor="#2bb47c" />
-        </linearGradient>
-      </defs>
-      <rect width="24" height="24" rx="6.5" fill="url(#crLogo)" opacity="0.16" />
+      <rect className="cr-mark-bg" width="24" height="24" rx="6.5" />
       <path
+        className="cr-mark-1"
         d="M6 9.2h9.4M12.9 6.6l2.8 2.6-2.8 2.6"
-        stroke="#3ddc97"
-        strokeWidth="1.7"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
+        className="cr-mark-2"
         d="M18 14.8H8.6M11.1 12.2l-2.8 2.6 2.8 2.6"
-        stroke="#e9eef5"
-        strokeWidth="1.7"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
-        opacity="0.85"
+        opacity="0.9"
       />
     </svg>
   );

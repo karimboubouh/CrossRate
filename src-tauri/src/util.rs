@@ -15,6 +15,20 @@ pub fn log_line(message: &str) {
     if std::env::var("CROSSRATE_LOG").is_ok() {
         eprintln!("[crossrate] {message}");
     }
+    // Optional file sink: Finder/LaunchServices launches have no terminal, so
+    // troubleshooting uses `launchctl setenv CROSSRATE_LOG_FILE /tmp/x.log`.
+    if let Ok(path) = std::env::var("CROSSRATE_LOG_FILE") {
+        if !path.trim().is_empty() {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(file, "[crossrate] {message}");
+            }
+        }
+    }
 }
 
 /// Median of a slice, 0.0 when empty. Used to spot bait ads in a book page.

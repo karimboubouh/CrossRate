@@ -51,6 +51,13 @@ export const api = {
     return invoke<string[]>("discover_pay_methods", { fiat, side });
   },
 
+  async getAccent(): Promise<{ accentLight: string; accentDark: string; dark: boolean }> {
+    if (!isTauri) {
+      return { accentLight: "#007aff", accentDark: "#0a84ff", dark: false };
+    }
+    return invoke<{ accentLight: string; accentDark: string; dark: boolean }>("get_accent");
+  },
+
   async listFiats(): Promise<FiatInfo[]> {
     if (!isTauri) return mockFiats;
     return invoke<FiatInfo[]>("list_fiats");

@@ -43,11 +43,11 @@ function RateGauge({ j, threshold, mid }: { j: number | null; threshold: number;
       </div>
       <div className="gauge-legend">
         <span className="item">
-          <span className="swatch" style={{ background: "rgba(255,255,255,0.32)" }} />
+          <span className="swatch" style={{ background: "var(--label-3)" }} />
           bank {fmtRate(mid)}
         </span>
         <span className="item">
-          <span className="swatch" style={{ background: "var(--amber)" }} />
+          <span className="swatch" style={{ background: "var(--label)" }} />
           target {fmtRate(threshold)}
         </span>
       </div>

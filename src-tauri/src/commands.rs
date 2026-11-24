@@ -81,6 +81,24 @@ pub async fn discover_pay_methods(
     Ok(methods)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    accent_light: String,
+    accent_dark: String,
+    dark: bool,
+}
+
+#[tauri::command]
+pub fn get_accent() -> Appearance {
+    let (accent_light, accent_dark) = crate::appearance::accent_colors();
+    Appearance {
+        accent_light,
+        accent_dark,
+        dark: crate::appearance::is_dark(),
+    }
+}
+
 #[tauri::command]
 pub fn list_fiats() -> Vec<FiatInfo> {
     fiat_list()

@@ -26,6 +26,8 @@ pub struct AppState {
     pub wake: Notify,
     pub fx: RwLock<FxState>,
     pub alert: Mutex<AlertRuntime>,
+    /// Last alert-visual state pushed to the tray (avoids repainting).
+    pub tray_alerting: std::sync::atomic::AtomicBool,
     /// Cached payment-method discovery: key -> (fetched_at_ms, methods).
     pub pay_cache: Mutex<HashMap<String, (i64, Vec<String>)>>,
 }
@@ -58,6 +60,7 @@ impl AppState {
             wake: Notify::new(),
             fx: RwLock::new(FxState::default()),
             alert: Mutex::new(AlertRuntime::default()),
+            tray_alerting: std::sync::atomic::AtomicBool::new(false),
             pay_cache: Mutex::new(HashMap::new()),
         }
     }

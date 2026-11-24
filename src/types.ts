@@ -2,6 +2,7 @@
 
 export type LegSide = "buy" | "sell";
 export type PublisherFilter = "any" | "merchant" | "user";
+export type ThemeMode = "system" | "light" | "dark";
 
 export interface Offer {
   advNo: string;
@@ -107,6 +108,7 @@ export interface Settings {
   midOverride: number | null;
   outlierPct: number;
   launchAtLogin: boolean;
+  theme: ThemeMode;
 }
 
 export interface FiatInfo {

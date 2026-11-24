@@ -244,6 +244,8 @@ pub struct Settings {
     /// Flag offers deviating more than this % from the book median.
     pub outlier_pct: f64,
     pub launch_at_login: bool,
+    /// `system`, `light` or `dark`.
+    pub theme: String,
 }
 
 impl Default for Settings {
@@ -269,6 +271,7 @@ impl Default for Settings {
             mid_override: None,
             outlier_pct: 3.0,
             launch_at_login: true,
+            theme: "system".to_string(),
         }
     }
 }
@@ -304,6 +307,9 @@ impl Settings {
             return Err("Sell maximum must be greater than or equal to the minimum".to_string());
         }
 
+        if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
+            self.theme = "system".to_string();
+        }
         if !SOUNDS.contains(&self.sound_name.as_str()) {
             self.sound_name = "Glass".to_string();
         }
