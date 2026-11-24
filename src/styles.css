@@ -251,10 +251,6 @@ select {
   color: var(--label);
 }
 
-.is-alert .hero-j {
-  color: var(--label);
-}
-
 .hero-j.none {
   color: var(--label-3);
   font-weight: 500;

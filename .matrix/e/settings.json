@@ -1,0 +1,4 @@
+{"fiatA":"AED","fiatB":"AED","threshold":-5,"refreshSecs":1,
+ "buyMinAmount":50000,"buyMaxAmount":100,
+ "buyFilters":{"minCompletionRate":5,"minMonthOrders":-3,"onlineOnly":true,"onlineWithinSecs":0,"payTypes":["",""],"publisher":"nonsense"},
+ "theme":"neon","soundName":"Bogus","notifyAmount":-1,"outlierPct":NaN}

@@ -1,0 +1,2 @@
+{"fiatA":"AED","fiatB":"MAD","threshold":1.0,"refreshSecs":10,
+ "sellMinAmount":900000,"sellMaxAmount":1000000}

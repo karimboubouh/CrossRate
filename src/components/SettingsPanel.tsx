@@ -157,6 +157,7 @@ export function SettingsPanel({
   saving,
   error,
   initialTab,
+  onEdit,
 }: {
   settings: Settings;
   fiats: FiatInfo[];
@@ -166,6 +167,7 @@ export function SettingsPanel({
   saving: boolean;
   error: string | null;
   initialTab?: string;
+  onEdit?: () => void;
 }) {
   const startTab: Tab = TABS.some((item) => item.id === initialTab)
     ? (initialTab as Tab)
@@ -198,20 +200,27 @@ export function SettingsPanel({
     };
   }, [tab, draft.fiatA, draft.fiatB]);
 
-  const patch = (next: Partial<Settings>) => setDraft((prev) => ({ ...prev, ...next }));
+  const patch = (next: Partial<Settings>) => {
+    onEdit?.();
+    setDraft((prev) => ({ ...prev, ...next }));
+  };
 
-  const patchFilters = (side: LegSide, next: Partial<SideFilters>) =>
+  const patchFilters = (side: LegSide, next: Partial<SideFilters>) => {
+    onEdit?.();
     setDraft((prev) => ({
       ...prev,
       [sideKey(side)]: { ...prev[sideKey(side)], ...next },
     }));
+  };
 
   const fiatName = (code: string) => fiats.find((fiat) => fiat.code === code)?.name ?? "";
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(settings), [draft, settings]);
 
-  const clearFavorites = (side: LegSide) =>
+  const clearFavorites = (side: LegSide) => {
+    onEdit?.();
     setDraft((prev) => ({ ...prev, [favKey(side)]: [] }));
+  };
 
   return (
     <div className="settings">

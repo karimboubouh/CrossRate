@@ -4,26 +4,43 @@ import { api } from "./lib/api";
 import { Dashboard } from "./components/Dashboard";
 import { SettingsPanel } from "./components/SettingsPanel";
 
+/** Resolves after `ms`; used to wait for the engine's next snapshot. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export default function App() {
-  const preview = new URLSearchParams(
-    typeof location === "undefined" ? "" : location.search,
-  );
+  // Dev-only preview hooks (?scenario=settings&tab=filters&theme=dark). The
+  // whole expression is dead code in a production build.
+  const previewParams =
+    import.meta.env.DEV && typeof location !== "undefined"
+      ? new URLSearchParams(location.search)
+      : null;
+
   const [settings, setSettings] = useState<Settings | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [fiats, setFiats] = useState<FiatInfo[]>([]);
   const [view, setView] = useState<"dashboard" | "settings">(
-    preview.get("scenario") === "settings" ? "settings" : "dashboard",
+    previewParams?.get("scenario") === "settings" ? "settings" : "dashboard",
   );
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
+
   const toastTimer = useRef<number | null>(null);
+  /** Latest settings, read synchronously so rapid edits cannot clobber each other. */
+  const settingsRef = useRef<Settings | null>(null);
 
   const showToast = useCallback((text: string, kind: "ok" | "err" = "ok") => {
     setToast({ text, kind });
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
+  }, []);
+
+  const adoptSettings = useCallback((next: Settings) => {
+    settingsRef.current = next;
+    setSettings(next);
   }, []);
 
   // Adopt the real macOS accent colour so controls match System Settings.
@@ -35,40 +52,64 @@ export default function App() {
     });
   }, []);
 
-  // Theme: follow the system unless the user pins light/dark.
+  // Theme: follow the system unless the user pins light/dark. The value is
+  // mirrored to localStorage so the correct appearance paints before React
+  // hydrates (main.tsx reads it synchronously).
   useEffect(() => {
     const root = document.documentElement;
-    const pinned = preview.get("theme");
-    const mode = pinned ?? settings?.theme ?? "system";
+    const mode = previewParams?.get("theme") ?? settings?.theme ?? "system";
     if (mode === "light" || mode === "dark") {
       root.dataset.theme = mode;
+      try {
+        window.localStorage.setItem("crossrate.theme", mode);
+      } catch {
+        /* storage may be unavailable; not fatal */
+      }
     } else {
       delete root.dataset.theme;
+      try {
+        window.localStorage.removeItem("crossrate.theme");
+      } catch {
+        /* ignore */
+      }
     }
-  }, [settings?.theme]);
+  }, [settings?.theme, previewParams]);
 
-  // Initial load + live wiring.
+  // Initial load + live wiring. Every listener is tracked so nothing leaks if
+  // the bridge resolves after unmount.
   useEffect(() => {
-    void api.getSettings().then(setSettings);
-    void api.getSnapshot().then(setSnapshot);
-    void api.listFiats().then(setFiats);
-
+    let disposed = false;
     const unlisteners: (() => void)[] = [];
-    void api.onSnapshot(setSnapshot).then((off) => unlisteners.push(off));
-    void api.onSettings(setSettings).then((off) => unlisteners.push(off));
-    void api.onOpenSettings(() => setView("settings")).then((off) => unlisteners.push(off));
+    const track = (off: () => void) => {
+      if (disposed) off();
+      else unlisteners.push(off);
+    };
 
-    return () => unlisteners.forEach((off) => off());
-  }, []);
+    void api.getSettings().then((next) => {
+      if (!disposed) adoptSettings(next);
+    });
+    void api.getSnapshot().then((next) => {
+      if (!disposed) setSnapshot(next);
+    });
+    void api.listFiats().then((list) => {
+      if (!disposed) setFiats(list);
+    });
 
-  // Browser preview: keep the mock alive so screenshots show fresh timestamps.
-  useEffect(() => {
-    if (api.isMock !== true) return;
-    const timer = window.setInterval(() => {
-      void api.getSnapshot().then(setSnapshot);
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, []);
+    void api.onSnapshot((next) => setSnapshot(next)).then(track);
+    void api.onSettings((next) => adoptSettings(next)).then(track);
+    void api.onOpenSettings(() => setView("settings")).then(track);
+    // Reopening the popup (tray click, notification click, app activation)
+    // always lands on the dashboard.
+    void api.onOpened(() => {
+      setView("dashboard");
+      setError(null);
+    }).then(track);
+
+    return () => {
+      disposed = true;
+      unlisteners.forEach((off) => off());
+    };
+  }, [adoptSettings]);
 
   // Re-render the footer's "updated Xs ago" without polling the backend.
   const [, forceTick] = useState(0);
@@ -85,7 +126,7 @@ export default function App() {
       const panel = document.querySelector(".app");
       if (!panel) return;
       const height = Math.ceil(panel.getBoundingClientRect().height);
-      if (Number.isFinite(height) && Math.abs(height - lastHeight.current) > 2) {
+      if (Number.isFinite(height) && height > 0 && Math.abs(height - lastHeight.current) > 2) {
         lastHeight.current = height;
         void api.setWindowHeight(height);
       }
@@ -99,50 +140,63 @@ export default function App() {
       setError(null);
       try {
         const saved = await api.saveSettings(next);
-        setSettings(saved);
+        adoptSettings(saved);
         setView("dashboard");
         showToast("Settings saved");
       } catch (err) {
-        setError(String(err));
+        // Keep the sheet open with the draft intact so the user can fix it.
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setSaving(false);
       }
     },
-    [showToast],
+    [adoptSettings, showToast],
   );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    const before = snapshot?.ts ?? 0;
     try {
       await api.refreshNow();
-      const fresh = await api.getSnapshot();
-      if (fresh) setSnapshot(fresh);
+      // The engine polls in the background; wait for a genuinely newer reading
+      // instead of immediately re-reading the old snapshot.
+      for (let attempt = 0; attempt < 14; attempt += 1) {
+        await sleep(150);
+        const fresh = await api.getSnapshot();
+        if (fresh && fresh.ts !== before) {
+          setSnapshot(fresh);
+          break;
+        }
+      }
     } finally {
-      window.setTimeout(() => setRefreshing(false), 600);
+      setRefreshing(false);
     }
-  }, []);
+  }, [snapshot?.ts]);
 
   const handleToggleFavorite = useCallback(
     async (side: LegSide, userNo: string) => {
-      if (!settings) return;
+      const base = settingsRef.current;
+      if (!base) return;
+
       const key = side === "buy" ? "favoriteBuyUsers" : "favoriteSellUsers";
-      const current = settings[key];
+      const current = base[key];
       const nextList = current.includes(userNo)
         ? current.filter((item) => item !== userNo)
         : [...current, userNo];
-      const next: Settings = { ...settings, [key]: nextList };
-      // Optimistic update so the star reacts instantly.
-      setSettings(next);
+      const next: Settings = { ...base, [key]: nextList };
+
+      // Optimistic and synchronous: two quick taps compose instead of racing.
+      adoptSettings(next);
       try {
         const saved = await api.saveSettings(next);
-        setSettings(saved);
+        adoptSettings(saved);
         showToast(nextList.includes(userNo) ? "Added to favorites" : "Removed from favorites");
       } catch (err) {
-        setSettings(settings);
-        showToast(String(err), "err");
+        adoptSettings(base);
+        showToast(err instanceof Error ? err.message : String(err), "err");
       }
     },
-    [settings, showToast],
+    [adoptSettings, showToast],
   );
 
   if (!settings) {
@@ -155,10 +209,8 @@ export default function App() {
     );
   }
 
-  const alert = snapshot?.alertActive ?? false;
-
   return (
-    <div className={`app${alert ? " is-alert" : ""}`}>
+    <div className="app">
       {view === "dashboard" ? (
         <Dashboard
           snapshot={snapshot}
@@ -174,7 +226,8 @@ export default function App() {
           fiats={fiats}
           saving={saving}
           error={error}
-          initialTab={preview.get("tab") ?? undefined}
+          initialTab={previewParams?.get("tab") ?? undefined}
+          onEdit={() => setError(null)}
           onSave={(next) => void handleSave(next)}
           onClose={() => {
             setError(null);
@@ -184,7 +237,9 @@ export default function App() {
         />
       )}
 
-      {toast ? <div className={`toast${toast.kind === "err" ? " err" : ""}`}>{toast.text}</div> : null}
+      {toast ? (
+        <div className={`toast${toast.kind === "err" ? " err" : ""}`}>{toast.text}</div>
+      ) : null}
     </div>
   );
 }
