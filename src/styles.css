@@ -11,10 +11,10 @@
   --accent: var(--accent-light, #007aff);
 
   /* text — mirrors labelColor / secondaryLabelColor / tertiaryLabelColor */
-  --label: rgba(0, 0, 0, 0.88);
-  --label-2: rgba(0, 0, 0, 0.55);
-  --label-3: rgba(0, 0, 0, 0.30);
-  --label-4: rgba(0, 0, 0, 0.14);
+  --label: rgba(0, 0, 0, 0.90);
+  --label-2: rgba(0, 0, 0, 0.62);
+  --label-3: rgba(0, 0, 0, 0.48);
+  --label-4: rgba(0, 0, 0, 0.28);
 
   /* surfaces — mirrors controlBackgroundColor / separatorColor / fillColor */
   --fill: rgba(0, 0, 0, 0.055);
@@ -40,10 +40,10 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --accent: var(--accent-dark, #0a84ff);
-    --label: rgba(255, 255, 255, 0.92);
-    --label-2: rgba(255, 255, 255, 0.55);
-    --label-3: rgba(255, 255, 255, 0.32);
-    --label-4: rgba(255, 255, 255, 0.18);
+    --label: rgba(255, 255, 255, 0.94);
+    --label-2: rgba(255, 255, 255, 0.64);
+    --label-3: rgba(255, 255, 255, 0.46);
+    --label-4: rgba(255, 255, 255, 0.30);
     --fill: rgba(255, 255, 255, 0.075);
     --fill-2: rgba(255, 255, 255, 0.11);
     --fill-hover: rgba(255, 255, 255, 0.10);
@@ -62,10 +62,10 @@
 
 :root[data-theme="dark"] {
   --accent: var(--accent-dark, #0a84ff);
-  --label: rgba(255, 255, 255, 0.92);
-  --label-2: rgba(255, 255, 255, 0.55);
-  --label-3: rgba(255, 255, 255, 0.32);
-  --label-4: rgba(255, 255, 255, 0.18);
+  --label: rgba(255, 255, 255, 0.94);
+  --label-2: rgba(255, 255, 255, 0.64);
+  --label-3: rgba(255, 255, 255, 0.46);
+  --label-4: rgba(255, 255, 255, 0.30);
   --fill: rgba(255, 255, 255, 0.075);
   --fill-2: rgba(255, 255, 255, 0.11);
   --fill-hover: rgba(255, 255, 255, 0.10);
@@ -83,10 +83,10 @@
 
 :root[data-theme="light"] {
   --accent: var(--accent-light, #007aff);
-  --label: rgba(0, 0, 0, 0.88);
-  --label-2: rgba(0, 0, 0, 0.55);
-  --label-3: rgba(0, 0, 0, 0.30);
-  --label-4: rgba(0, 0, 0, 0.14);
+  --label: rgba(0, 0, 0, 0.90);
+  --label-2: rgba(0, 0, 0, 0.62);
+  --label-3: rgba(0, 0, 0, 0.48);
+  --label-4: rgba(0, 0, 0, 0.28);
   --fill: rgba(0, 0, 0, 0.055);
   --fill-2: rgba(0, 0, 0, 0.09);
   --fill-hover: rgba(0, 0, 0, 0.075);
@@ -218,7 +218,7 @@ select {
 /* ------------------------------------------------------------------- hero -- */
 
 .hero {
-  padding: 12px 12px 10px;
+  padding: 10px 12px 9px;
   flex: none;
 }
 
@@ -243,7 +243,7 @@ select {
 }
 
 .hero-j {
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1.05;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -346,7 +346,7 @@ select {
   display: flex;
   justify-content: space-between;
   margin-top: 7px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--label-3);
 }
 
@@ -365,7 +365,7 @@ select {
 /* grouped facts — like a macOS inspector row group */
 .hero-facts {
   display: flex;
-  margin-top: 11px;
+  margin-top: 9px;
   border-radius: 7px;
   background: var(--fill);
   overflow: hidden;
@@ -382,7 +382,7 @@ select {
 }
 
 .fact-k {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 400;
   color: var(--label-3);
   white-space: nowrap;
@@ -413,13 +413,14 @@ select {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 0 12px 10px;
+  padding: 0 12px 8px;
   flex: none;
 }
 
 .leg {
   border-radius: 7px;
   background: var(--fill);
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.05);
   padding: 7px 9px 6px;
   min-width: 0;
 }
@@ -549,7 +550,7 @@ select {
 .offer-scroll {
   flex: none;
   min-height: 0;
-  max-height: 268px;
+  max-height: 254px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -662,7 +663,7 @@ select {
   align-items: center;
   gap: 5px;
   max-width: 100%;
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--label-3);
   margin-top: 1px;
   font-variant-numeric: tabular-nums;
@@ -690,7 +691,7 @@ select {
 
 .offer-meta {
   display: block;
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--label-3);
   margin-top: 1px;
   font-variant-numeric: tabular-nums;
@@ -704,7 +705,15 @@ select {
   place-items: center;
   border-radius: 4px;
   color: var(--label-4);
-  transition: color 100ms ease, background 100ms ease;
+  opacity: 0;
+  transition: color 100ms ease, background 100ms ease, opacity 120ms ease;
+}
+
+.offer:hover .fav-btn,
+.offer:focus-within .fav-btn,
+.fav-btn:focus-visible,
+.fav-btn.on {
+  opacity: 1;
 }
 
 .fav-btn:hover {
@@ -725,12 +734,12 @@ select {
 }
 
 .list-hint {
-  margin: 8px 4px 4px;
-  padding-top: 9px;
+  margin: 6px 4px 2px;
+  padding-top: 8px;
   border-top: 1px solid var(--hairline);
   font-size: 10px;
   line-height: 1.45;
-  color: var(--label-3);
+  color: var(--label-4);
   text-align: center;
 }
 
@@ -743,7 +752,7 @@ select {
   padding: 7px 12px 8px;
   border-top: 1px solid var(--hairline);
   flex: none;
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
