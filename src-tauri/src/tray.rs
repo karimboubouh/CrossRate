@@ -12,6 +12,35 @@ pub const TRAY_ID: &str = "crossrate-tray";
 
 const IDLE_PNG: &[u8] = include_bytes!("../icons/tray-idle.png");
 
+/// A menu bar popover must be able to appear over whatever is in front,
+/// including a full-screen app's Space. `CanJoinAllSpaces` alone only moves the
+/// window between normal desktops, so `FullScreenAuxiliary` is what makes it
+/// visible while an app is full screen.
+#[cfg(target_os = "macos")]
+pub fn float_over_full_screen(window: &tauri::WebviewWindow) {
+    let _ = window.set_visible_on_all_workspaces(true);
+
+    let Ok(handle) = window.ns_window() else {
+        return;
+    };
+
+    // SAFETY: `ns_window` returns the owning NSWindow; the call happens on the
+    // main thread (setup, tray and menu handlers all run there) and the pointer
+    // stays valid for the window's lifetime.
+    unsafe {
+        use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+        let ns_window: &NSWindow = &*(handle as *const NSWindow);
+        let behavior = ns_window.collectionBehavior()
+            | NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::Stationary;
+        ns_window.setCollectionBehavior(behavior);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn float_over_full_screen(_window: &tauri::WebviewWindow) {}
+
 /// Paint the monochrome glyph with the user's macOS accent colour so the
 /// "alerting" state matches the rest of their system.
 fn accent_icon() -> Option<Image<'static>> {
@@ -123,6 +152,7 @@ fn clamp_to_monitor(
 }
 
 fn place_and_show(window: &tauri::WebviewWindow, x: f64, y: f64, origin: &str) {
+    float_over_full_screen(window);
     let size = window
         .outer_size()
         .unwrap_or(tauri::PhysicalSize::new(408, 724));

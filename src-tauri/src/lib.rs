@@ -40,6 +40,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // Join every Space (incl. full-screen apps) from the first launch.
+            if let Some(window) = app.get_webview_window("main") {
+                tray::float_over_full_screen(&window);
+            }
+
             // Native popover material behind the transparent webview, so the
             // panel picks up the desktop and both appearances for free.
             #[cfg(target_os = "macos")]
