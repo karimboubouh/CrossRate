@@ -57,6 +57,10 @@ export const api = {
     await invoke("test_alert", { sound });
   },
 
+  async setAppearance(theme: "system" | "light" | "dark"): Promise<void> {
+    await invoke("set_appearance", { theme });
+  },
+
   async setWindowHeight(height: number): Promise<void> {
     await invoke("set_window_height", { height });
   },

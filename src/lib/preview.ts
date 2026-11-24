@@ -40,6 +40,7 @@ export function installPreview(api: Api): void {
   target.openAdvertiser = async () => {};
   target.playSound = async () => {};
   target.testAlert = async () => {};
+  target.setAppearance = async () => {};
   target.setWindowHeight = async () => {};
   target.hideWindow = async () => {};
   target.quitApp = async () => {};

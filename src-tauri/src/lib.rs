@@ -33,6 +33,7 @@ pub fn run() {
             commands::hide_window,
             commands::quit_app,
             commands::set_window_height,
+            commands::set_appearance,
             commands::get_accent,
         ])
         .setup(|app| {
@@ -57,7 +58,16 @@ pub fn run() {
             let settings = settings::load(&handle);
             let wants_autostart = settings.launch_at_login;
 
-            app.manage(state::AppState::new(settings));
+            // Match the native material to the saved theme from the first frame.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_theme(match settings.theme.as_str() {
+                    "light" => Some(tauri::Theme::Light),
+                    "dark" => Some(tauri::Theme::Dark),
+                    _ => None,
+                });
+            }
+
+            app.manage(state::AppState::new(settings.clone()));
             tray::build(&handle)?;
             commands::apply_autostart(&handle, wants_autostart);
 

@@ -165,6 +165,20 @@ pub async fn test_alert(
 }
 
 /// Native popovers hug their content; the webview reports the measured height.
+/// Pin the native window appearance. This is what makes the NSVisualEffectView
+/// material and the webview's own `prefers-color-scheme` agree with the chosen
+/// theme — otherwise a pinned theme fights the macOS appearance and the panel
+/// becomes unreadable.
+#[tauri::command]
+pub fn set_appearance(window: tauri::WebviewWindow, theme: String) -> Result<(), String> {
+    let value = match theme.as_str() {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => None,
+    };
+    window.set_theme(value).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn set_window_height(window: tauri::WebviewWindow, height: f64) {
     if !height.is_finite() {

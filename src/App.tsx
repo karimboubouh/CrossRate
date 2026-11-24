@@ -73,8 +73,11 @@ export default function App() {
   // localStorage so the correct appearance paints before React mounts.
   useEffect(() => {
     if (!settings) return; // don't clobber the pre-paint value while loading
-    const root = document.documentElement;
     const mode = settings.theme ?? "system";
+    // Keep the native material and the webview's own appearance in sync with
+    // the pin, otherwise light-on-dark (or dark-on-light) becomes unreadable.
+    void api.setAppearance(mode).catch(() => {});
+    const root = document.documentElement;
     if (mode === "light" || mode === "dark") {
       root.dataset.theme = mode;
       try {

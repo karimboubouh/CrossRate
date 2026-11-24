@@ -152,9 +152,10 @@ select {
   height: auto;
   display: flex;
   flex-direction: column;
-  /* The OS popover material sits behind this webview; a light tint keeps text
-     legible while still letting the desktop blur through. */
-  background: color-mix(in srgb, var(--sheet) 26%, transparent);
+  /* The OS popover material sits behind this webview. A fairly opaque tint
+     keeps text legible even over a busy wallpaper or if the native material
+     and the chosen theme ever disagree. */
+  background: color-mix(in srgb, var(--sheet) 86%, transparent);
   border-radius: var(--radius);
   overflow: hidden;
 }
