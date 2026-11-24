@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.pnpm-store/
+.pnpm-cache/
+.cargo-home/
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+*.log
+.probe/
+tmp/
+
+# Local UI preview / screenshot verification artifacts
+.chrome-prof/
+.chrome-profile/
+shot-*.png
+# Root-level screenshots from local UI verification (real assets live in src-tauri/icons)
+/*.png
