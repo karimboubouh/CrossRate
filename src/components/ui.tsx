@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function Toggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => void }) {
   return (
@@ -67,8 +67,12 @@ export function Segmented<T extends string>({
 }
 
 /**
- * Numeric input that keeps a local string so typing "1." or clearing the field
- * does not fight the parent state.
+ * Numeric input.
+ *
+ * The visible text is local state, so the user can clear the field and type
+ * freely without the parent clamping a half-typed number (that used to make
+ * "60" become "560"). A parsed value is reported on every keystroke, but the
+ * display is only normalised from the model on blur / when not focused.
  */
 export function NumField({
   value,
@@ -79,6 +83,7 @@ export function NumField({
   max,
   wide,
   pct,
+  invalid,
 }: {
   value: number;
   onChange: (next: number) => void;
@@ -88,26 +93,46 @@ export function NumField({
   max?: number;
   wide?: boolean;
   pct?: boolean;
+  invalid?: boolean;
 }) {
-  const display = Number.isFinite(value) ? String(value) : "";
+  const format = (input: number) => (Number.isFinite(input) ? String(input) : "");
+  const [text, setText] = useState(() => format(value));
+  const [editing, setEditing] = useState(false);
+
+  // Adopt external changes (backend round-trip, clamping) unless the user is
+  // mid-edit.
+  useEffect(() => {
+    if (!editing) setText(format(value));
+  }, [value, editing]);
+
   return (
     <input
-      className={`input${wide ? " wide" : ""}${pct ? " pct" : ""}`}
-      type="number"
+      className={`input${wide ? " wide" : ""}${pct ? " pct" : ""}${invalid ? " invalid" : ""}`}
+      type="text"
       inputMode="decimal"
-      value={display}
-      step={step ?? "any"}
+      value={text}
+      step={step}
       min={min}
       max={max}
       placeholder={suffix}
-      onChange={(event) => {
-        const raw = event.target.value;
-        if (raw === "") {
-          onChange(0);
+      aria-invalid={invalid ? true : undefined}
+      onFocus={() => setEditing(true)}
+      onBlur={() => {
+        setEditing(false);
+        const parsed = Number(text.replace(",", "."));
+        if (text.trim() === "" || !Number.isFinite(parsed)) {
+          setText(format(value));
           return;
         }
-        const parsed = Number(raw);
-        if (Number.isFinite(parsed)) onChange(parsed);
+        onChange(parsed);
+        setText(format(parsed));
+      }}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setText(raw);
+        const parsed = Number(raw.replace(",", "."));
+        // Report only real numbers; an empty field means "not committed yet".
+        if (raw.trim() !== "" && Number.isFinite(parsed)) onChange(parsed);
       }}
     />
   );

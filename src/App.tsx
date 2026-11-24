@@ -4,14 +4,12 @@ import { api } from "./lib/api";
 import { Dashboard } from "./components/Dashboard";
 import { SettingsPanel } from "./components/SettingsPanel";
 
-/** Resolves after `ms`; used to wait for the engine's next snapshot. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export default function App() {
-  // Dev-only preview hooks (?scenario=settings&tab=filters&theme=dark). The
-  // whole expression is dead code in a production build.
+  // Dev-only preview hooks (?scenario=settings&tab=filters&theme=dark).
   const previewParams =
     import.meta.env.DEV && typeof location !== "undefined"
       ? new URLSearchParams(location.search)
@@ -26,11 +24,13 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
 
   const toastTimer = useRef<number | null>(null);
-  /** Latest settings, read synchronously so rapid edits cannot clobber each other. */
   const settingsRef = useRef<Settings | null>(null);
+  const snapshotRef = useRef<Snapshot | null>(null);
 
   const showToast = useCallback((text: string, kind: "ok" | "err" = "ok") => {
     setToast({ text, kind });
@@ -41,29 +41,46 @@ export default function App() {
   const adoptSettings = useCallback((next: Settings) => {
     settingsRef.current = next;
     setSettings(next);
+
+    // A pair change invalidates the current market: never render the old
+    // pair's numbers under the new pair's labels.
+    const current = snapshotRef.current;
+    if (current && (current.fiatA !== next.fiatA || current.fiatB !== next.fiatB)) {
+      snapshotRef.current = null;
+      setSnapshot(null);
+    }
+  }, []);
+
+  const adoptSnapshot = useCallback((next: Snapshot | null) => {
+    snapshotRef.current = next;
+    setSnapshot(next);
   }, []);
 
   // Adopt the real macOS accent colour so controls match System Settings.
   useEffect(() => {
-    void api.getAccent().then((appearance) => {
-      const root = document.documentElement;
-      root.style.setProperty("--accent-light", appearance.accentLight);
-      root.style.setProperty("--accent-dark", appearance.accentDark);
-    });
+    void api.getAccent()
+      .then((appearance) => {
+        const root = document.documentElement;
+        root.style.setProperty("--accent-light", appearance.accentLight);
+        root.style.setProperty("--accent-dark", appearance.accentDark);
+      })
+      .catch(() => {
+        /* accent is cosmetic; system defaults remain */
+      });
   }, []);
 
-  // Theme: follow the system unless the user pins light/dark. The value is
-  // mirrored to localStorage so the correct appearance paints before React
-  // hydrates (main.tsx reads it synchronously).
+  // Theme: follow the system unless the user pins light/dark. Mirrored to
+  // localStorage so the correct appearance paints before React mounts.
   useEffect(() => {
+    if (!settings) return; // don't clobber the pre-paint value while loading
     const root = document.documentElement;
-    const mode = previewParams?.get("theme") ?? settings?.theme ?? "system";
+    const mode = settings.theme ?? "system";
     if (mode === "light" || mode === "dark") {
       root.dataset.theme = mode;
       try {
         window.localStorage.setItem("crossrate.theme", mode);
       } catch {
-        /* storage may be unavailable; not fatal */
+        /* storage unavailable */
       }
     } else {
       delete root.dataset.theme;
@@ -73,10 +90,9 @@ export default function App() {
         /* ignore */
       }
     }
-  }, [settings?.theme, previewParams]);
+  }, [settings]);
 
-  // Initial load + live wiring. Every listener is tracked so nothing leaks if
-  // the bridge resolves after unmount.
+  // Initial load + live wiring, with a retry path if the bridge is not ready.
   useEffect(() => {
     let disposed = false;
     const unlisteners: (() => void)[] = [];
@@ -85,31 +101,32 @@ export default function App() {
       else unlisteners.push(off);
     };
 
-    void api.getSettings().then((next) => {
-      if (!disposed) adoptSettings(next);
-    });
-    void api.getSnapshot().then((next) => {
-      if (!disposed) setSnapshot(next);
-    });
-    void api.listFiats().then((list) => {
-      if (!disposed) setFiats(list);
-    });
+    setLoadError(null);
+    void Promise.all([api.getSettings(), api.getSnapshot(), api.listFiats()])
+      .then(([nextSettings, nextSnapshot, nextFiats]) => {
+        if (disposed) return;
+        adoptSettings(nextSettings);
+        if (nextSnapshot) adoptSnapshot(nextSnapshot);
+        setFiats(nextFiats);
+      })
+      .catch((err) => {
+        if (disposed) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+      });
 
-    void api.onSnapshot((next) => setSnapshot(next)).then(track);
-    void api.onSettings((next) => adoptSettings(next)).then(track);
-    void api.onOpenSettings(() => setView("settings")).then(track);
-    // Reopening the popup (tray click, notification click, app activation)
-    // always lands on the dashboard.
+    void api.onSnapshot((next) => adoptSnapshot(next)).then(track).catch(() => {});
+    void api.onSettings((next) => adoptSettings(next)).then(track).catch(() => {});
+    void api.onOpenSettings(() => setView("settings")).then(track).catch(() => {});
     void api.onOpened(() => {
       setView("dashboard");
       setError(null);
-    }).then(track);
+    }).then(track).catch(() => {});
 
     return () => {
       disposed = true;
       unlisteners.forEach((off) => off());
     };
-  }, [adoptSettings]);
+  }, [adoptSettings, adoptSnapshot, reloadToken]);
 
   // Re-render the footer's "updated Xs ago" without polling the backend.
   const [, forceTick] = useState(0);
@@ -118,21 +135,34 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // Size the native popover to its content, like a real macOS popover.
+  // Size the native popover to its content. ResizeObserver catches tab
+  // switches and error lines that the previous dependency-array timer missed.
   const lastHeight = useRef(0);
   useEffect(() => {
     if (api.isMock) return;
-    const timer = window.setTimeout(() => {
-      const panel = document.querySelector(".app");
-      if (!panel) return;
-      const height = Math.ceil(panel.getBoundingClientRect().height);
-      if (Number.isFinite(height) && height > 0 && Math.abs(height - lastHeight.current) > 2) {
-        lastHeight.current = height;
-        void api.setWindowHeight(height);
-      }
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [snapshot, view, settings]);
+    const panel = document.querySelector(".app");
+    if (!panel) return;
+
+    let timer: number | null = null;
+    const measure = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const height = Math.ceil(panel.getBoundingClientRect().height);
+        if (Number.isFinite(height) && height > 0 && Math.abs(height - lastHeight.current) > 2) {
+          lastHeight.current = height;
+          void api.setWindowHeight(height);
+        }
+      }, 70);
+    };
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    measure();
+    return () => {
+      observer.disconnect();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [settings !== null]);
 
   const handleSave = useCallback(
     async (next: Settings) => {
@@ -144,7 +174,6 @@ export default function App() {
         setView("dashboard");
         showToast("Settings saved");
       } catch (err) {
-        // Keep the sheet open with the draft intact so the user can fix it.
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setSaving(false);
@@ -155,23 +184,23 @@ export default function App() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    const before = snapshot?.ts ?? 0;
+    const before = snapshotRef.current?.ts ?? 0;
     try {
       await api.refreshNow();
-      // The engine polls in the background; wait for a genuinely newer reading
-      // instead of immediately re-reading the old snapshot.
       for (let attempt = 0; attempt < 14; attempt += 1) {
         await sleep(150);
         const fresh = await api.getSnapshot();
         if (fresh && fresh.ts !== before) {
-          setSnapshot(fresh);
+          adoptSnapshot(fresh);
           break;
         }
       }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Refresh failed", "err");
     } finally {
       setRefreshing(false);
     }
-  }, [snapshot?.ts]);
+  }, [adoptSnapshot, showToast]);
 
   const handleToggleFavorite = useCallback(
     async (side: LegSide, userNo: string) => {
@@ -185,19 +214,47 @@ export default function App() {
         : [...current, userNo];
       const next: Settings = { ...base, [key]: nextList };
 
-      // Optimistic and synchronous: two quick taps compose instead of racing.
       adoptSettings(next);
       try {
         const saved = await api.saveSettings(next);
         adoptSettings(saved);
         showToast(nextList.includes(userNo) ? "Added to favorites" : "Removed from favorites");
       } catch (err) {
-        adoptSettings(base);
+        // Revert only this user, so a later successful toggle is not clobbered.
+        const latest = settingsRef.current;
+        if (latest) {
+          const list = latest[key];
+          adoptSettings({
+            ...latest,
+            [key]: current.includes(userNo)
+              ? (list.includes(userNo) ? list : [...list, userNo])
+              : list.filter((item) => item !== userNo),
+          });
+        }
         showToast(err instanceof Error ? err.message : String(err), "err");
       }
     },
     [adoptSettings, showToast],
   );
+
+  if (loadError) {
+    return (
+      <div className="app">
+        <div className="empty-block" style={{ marginTop: 120 }}>
+          <div>Could not reach the CrossRate engine.</div>
+          <div style={{ marginTop: 6, fontSize: 10.5 }}>{loadError}</div>
+          <button
+            type="button"
+            className="btn ghost small"
+            style={{ marginTop: 12 }}
+            onClick={() => setReloadToken((token) => token + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!settings) {
     return (
@@ -233,7 +290,13 @@ export default function App() {
             setError(null);
             setView("dashboard");
           }}
-          onTest={(sound) => void api.testAlert(sound)}
+          onTest={(sound) => {
+            void api
+              .testAlert(sound)
+              .catch((err) =>
+                showToast(err instanceof Error ? err.message : "Test failed", "err"),
+              );
+          }}
         />
       )}
 

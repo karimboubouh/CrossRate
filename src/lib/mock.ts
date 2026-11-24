@@ -166,7 +166,15 @@ function leg(
 }
 
 export function mockSettings(): Settings {
+  const requested =
+    typeof location === "undefined"
+      ? null
+      : new URLSearchParams(location.search).get("theme");
+  const theme: Settings["theme"] =
+    requested === "light" || requested === "dark" ? requested : "system";
+
   return {
+    theme,
     fiatA: "AED",
     fiatB: "MAD",
     threshold: 2.75,
@@ -203,7 +211,6 @@ export function mockSettings(): Settings {
     midOverride: null,
     outlierPct: 3,
     launchAtLogin: true,
-    theme: "system",
   };
 }
 

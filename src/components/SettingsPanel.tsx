@@ -15,11 +15,18 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "alerts", label: "Alerts" },
 ];
 
+type DiscoveryStatus = "idle" | "loading" | "ready" | "error";
+
 const PUBLISHER_OPTIONS: { value: PublisherFilter; label: string }[] = [
   { value: "any", label: "Any" },
   { value: "merchant", label: "Pro" },
   { value: "user", label: "User" },
 ];
+
+/** 0.905 renders as "90.5" instead of being rounded to "91". */
+function pctValue(rate: number): number {
+  return Math.round(rate * 10_000) / 100;
+}
 
 function sideKey(side: LegSide): "buyFilters" | "sellFilters" {
   return side === "buy" ? "buyFilters" : "sellFilters";
@@ -34,12 +41,16 @@ function FilterBlock({
   fiat,
   filters,
   payMethods,
+  discovery,
+  onRetry,
   onChange,
 }: {
   side: LegSide;
   fiat: string;
   filters: SideFilters;
   payMethods: string[];
+  discovery: DiscoveryStatus;
+  onRetry: () => void;
   onChange: (patch: Partial<SideFilters>) => void;
 }) {
   const label = side === "buy" ? `Buy leg · ${fiat}` : `Sell leg · ${fiat}`;
@@ -65,7 +76,7 @@ function FilterBlock({
 
       <Field label="Min completion rate" hint="30-day order completion">
         <NumField
-          value={Math.round(filters.minCompletionRate * 100)}
+          value={pctValue(filters.minCompletionRate)}
           onChange={(percent) => onChange({ minCompletionRate: Math.min(100, Math.max(0, percent)) / 100 })}
           step={1}
           min={0}
@@ -76,7 +87,7 @@ function FilterBlock({
 
       <Field label="Min positive feedback" hint="Leave 0 to ignore this filter">
         <NumField
-          value={Math.round(filters.minPositiveRate * 100)}
+          value={pctValue(filters.minPositiveRate)}
           onChange={(percent) => onChange({ minPositiveRate: Math.min(100, Math.max(0, percent)) / 100 })}
           step={1}
           min={0}
@@ -102,9 +113,8 @@ function FilterBlock({
         <Field label="Online window" hint="Minutes since the advertiser was last active">
           <NumField
             value={Math.round(filters.onlineWithinSecs / 60)}
-            onChange={(minutes) =>
-              onChange({ onlineWithinSecs: Math.min(1440, Math.max(1, Math.round(minutes))) * 60 })
-            }
+            onChange={(minutes) => onChange({ onlineWithinSecs: minutes * 60 })}
+            invalid={filters.onlineWithinSecs < 30 || filters.onlineWithinSecs > 86_400}
             step={5}
             min={1}
             max={1440}
@@ -124,8 +134,17 @@ function FilterBlock({
         </div>
       </div>
       <div className="chips">
-        {payMethods.length === 0 ? (
+        {discovery === "loading" ? (
           <span className="field-hint">Loading methods…</span>
+        ) : discovery === "error" ? (
+          <span className="field-hint">
+            Couldn’t load payment methods.{" "}
+            <button type="button" className="chip add" onClick={onRetry}>
+              retry
+            </button>
+          </span>
+        ) : payMethods.length === 0 ? (
+          <span className="field-hint">This currency reports no payment methods.</span>
         ) : (
           payMethods.map((method) => (
             <button
@@ -175,30 +194,37 @@ export function SettingsPanel({
   const [tab, setTab] = useState<Tab>(startTab);
   const [draft, setDraft] = useState<Settings>(settings);
   const [picking, setPicking] = useState<LegSide | null>(null);
-  const [payMethods, setPayMethods] = useState<{ buy: string[]; sell: string[] }>({
-    buy: [],
-    sell: [],
-  });
+  const [discovery, setDiscovery] = useState<{
+    status: DiscoveryStatus;
+    buy: string[];
+    sell: string[];
+  }>({ status: "idle", buy: [], sell: [] });
+  const [discoveryToken, setDiscoveryToken] = useState(0);
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
 
-  // Discover real payment methods for the selected currencies.
+  // Discover the payment methods that actually exist for these currencies.
   useEffect(() => {
     if (tab !== "filters") return;
     let cancelled = false;
+    setDiscovery((prev) => ({ ...prev, status: "loading" }));
     void (async () => {
-      const [buy, sell] = await Promise.all([
-        api.discoverPayMethods(draft.fiatA, "buy").catch(() => []),
-        api.discoverPayMethods(draft.fiatB, "sell").catch(() => []),
-      ]);
-      if (!cancelled) setPayMethods({ buy, sell });
+      try {
+        const [buy, sell] = await Promise.all([
+          api.discoverPayMethods(draft.fiatA, "buy"),
+          api.discoverPayMethods(draft.fiatB, "sell"),
+        ]);
+        if (!cancelled) setDiscovery({ status: "ready", buy, sell });
+      } catch {
+        if (!cancelled) setDiscovery({ status: "error", buy: [], sell: [] });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [tab, draft.fiatA, draft.fiatB]);
+  }, [tab, draft.fiatA, draft.fiatB, discoveryToken]);
 
   const patch = (next: Partial<Settings>) => {
     onEdit?.();
@@ -216,6 +242,46 @@ export function SettingsPanel({
   const fiatName = (code: string) => fiats.find((fiat) => fiat.code === code)?.name ?? "";
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(settings), [draft, settings]);
+
+  // Catch impossible values here: the backend clamps some of them silently,
+  // which used to turn a cleared field into a default with no warning.
+  const problems = useMemo(() => {
+    const list: string[] = [];
+    if (!(draft.threshold > 0)) list.push("Threshold must be greater than 0.");
+    if (!(draft.refreshSecs >= 5 && draft.refreshSecs <= 600)) {
+      list.push("Poll interval must be between 5 and 600 seconds.");
+    }
+    if (!(draft.notifyAmount > 0)) list.push("Alert trade size must be greater than 0.");
+    if (!Number.isFinite(draft.outlierPct) || draft.outlierPct < 0 || draft.outlierPct > 50) {
+      list.push("Outlier warning must be between 0 and 50%.");
+    }
+    for (const label of ["Buy", "Sell"] as const) {
+      const band =
+        label === "Buy"
+          ? [draft.buyMinAmount, draft.buyMaxAmount]
+          : [draft.sellMinAmount, draft.sellMaxAmount];
+      if (band[0] < 0 || band[1] < 0) list.push(`${label} amounts cannot be negative.`);
+      if (band[1] > 0 && band[1] < band[0]) {
+        list.push(`${label} maximum must be at least the minimum.`);
+      }
+    }
+    for (const [label, filters] of [
+      ["Buy", draft.buyFilters],
+      ["Sell", draft.sellFilters],
+    ] as const) {
+      if (filters.minCompletionRate < 0 || filters.minCompletionRate > 1) {
+        list.push(`${label} completion rate must be between 0 and 100%.`);
+      }
+      if (filters.minPositiveRate < 0 || filters.minPositiveRate > 1) {
+        list.push(`${label} positive feedback must be between 0 and 100%.`);
+      }
+      if (filters.minMonthOrders < 0) list.push(`${label} order count cannot be negative.`);
+      if (filters.onlineWithinSecs < 30 || filters.onlineWithinSecs > 86_400) {
+        list.push(`${label} online window must be between 0.5 and 1,440 minutes.`);
+      }
+    }
+    return list;
+  }, [draft]);
 
   const clearFavorites = (side: LegSide) => {
     onEdit?.();
@@ -329,9 +395,8 @@ export function SettingsPanel({
               <Field label="Poll interval" hint="Seconds between Binance P2P checks">
                 <NumField
                   value={draft.refreshSecs}
-                  onChange={(refreshSecs) =>
-                    patch({ refreshSecs: Math.min(600, Math.max(5, Math.round(refreshSecs))) })
-                  }
+                  onChange={(refreshSecs) => patch({ refreshSecs })}
+                  invalid={!(draft.refreshSecs >= 5 && draft.refreshSecs <= 600)}
                   step={5}
                   min={5}
                   max={600}
@@ -407,14 +472,18 @@ export function SettingsPanel({
               side="buy"
               fiat={draft.fiatA}
               filters={draft.buyFilters}
-              payMethods={payMethods.buy}
+              payMethods={discovery.buy}
+              discovery={discovery.status}
+              onRetry={() => setDiscoveryToken((token) => token + 1)}
               onChange={(next) => patchFilters("buy", next)}
             />
             <FilterBlock
               side="sell"
               fiat={draft.fiatB}
               filters={draft.sellFilters}
-              payMethods={payMethods.sell}
+              payMethods={discovery.sell}
+              discovery={discovery.status}
+              onRetry={() => setDiscoveryToken((token) => token + 1)}
               onChange={(next) => patchFilters("sell", next)}
             />
           </>
@@ -447,6 +516,7 @@ export function SettingsPanel({
                   onChange={(notifyAmount) => patch({ notifyAmount })}
                   step={1000}
                   min={1}
+                  invalid={!(draft.notifyAmount > 0)}
                 />
               </Field>
             </Section>
@@ -492,7 +562,15 @@ export function SettingsPanel({
           </>
         ) : null}
 
-        {error ? <div className="error-text">{error}</div> : null}
+        {problems.length > 0 ? (
+          <div className="error-text">
+            {problems.map((problem) => (
+              <div key={problem}>{problem}</div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="error-text">{error}</div>
+        ) : null}
       </div>
 
       <div className="settings-footer">
@@ -503,8 +581,10 @@ export function SettingsPanel({
         <button
           type="button"
           className="btn primary"
-          disabled={saving || !dirty}
-          onClick={() => onSave(draft)}
+          disabled={saving || !dirty || problems.length > 0}
+          onClick={() => {
+            if (problems.length === 0) onSave(draft);
+          }}
         >
           {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
         </button>
@@ -517,7 +597,19 @@ export function SettingsPanel({
           selected={picking === "buy" ? draft.fiatA : draft.fiatB}
           exclude={picking === "buy" ? draft.fiatB : draft.fiatA}
           onPick={(code) => {
-            patch(picking === "buy" ? { fiatA: code } : { fiatB: code });
+            // Methods are per-currency: stale selections would silently filter
+            // every offer out on the new pair.
+            patch(
+              picking === "buy"
+                ? {
+                    fiatA: code,
+                    buyFilters: { ...draft.buyFilters, payTypes: [] },
+                  }
+                : {
+                    fiatB: code,
+                    sellFilters: { ...draft.sellFilters, payTypes: [] },
+                  },
+            );
             setPicking(null);
           }}
           onClose={() => setPicking(null)}

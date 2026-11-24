@@ -57,7 +57,7 @@ function RateGauge({ j, threshold, mid }: { j: number | null; threshold: number;
 
 /* -------------------------------------------------------------- leg card -- */
 
-function LegCard({ leg }: { leg: LegView }) {
+function LegCard({ leg, favorites }: { leg: LegView; favorites: string[] }) {
   const isBuy = leg.side === "buy";
   const best = leg.best;
   const noOffers = leg.passed === 0 && leg.offers.length === 0;
@@ -77,7 +77,9 @@ function LegCard({ leg }: { leg: LegView }) {
       {best ? (
         <>
           <div className="leg-user">
-            {best.isFavorite ? <span className="star">★</span> : null}
+            {best.isFavorite || favorites.includes(best.userNo) ? (
+              <span className="star">★</span>
+            ) : null}
             <span className="name">{best.nickname}</span>
           </div>
           <div className="leg-meta num">
@@ -99,18 +101,16 @@ function OfferRow({
   offer,
   rank,
   isBest,
+  isFavorite,
   onToggleFavorite,
 }: {
   offer: Offer;
   rank: number;
   isBest: boolean;
+  isFavorite: boolean;
   onToggleFavorite: () => void;
 }) {
-  const classes = [
-    "offer",
-    isBest ? "best" : "",
-    offer.isFavorite ? "fav" : "",
-  ]
+  const classes = ["offer", isBest ? "best" : "", isFavorite ? "fav" : ""]
     .filter(Boolean)
     .join(" ");
 
@@ -165,11 +165,19 @@ function OfferRow({
       </span>
       <button
         type="button"
-        className={`fav-btn${offer.isFavorite ? " on" : ""}`}
-        title={offer.isFavorite ? "Remove from favorites" : "Add to favorites"}
+        className={`fav-btn${isFavorite ? " on" : ""}`}
+        title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+        aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
         onClick={(event) => {
           event.stopPropagation();
           onToggleFavorite();
+        }}
+        onKeyDown={(event) => {
+          // Do not let Enter/Space bubble to the row (which opens Binance).
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
         }}
       >
         <StarIcon size={10} />
@@ -180,9 +188,11 @@ function OfferRow({
 
 function OfferList({
   leg,
+  favorites,
   onToggleFavorite,
 }: {
   leg: LegView;
+  favorites: string[];
   onToggleFavorite: (userNo: string) => void;
 }) {
   if (leg.error) {
@@ -192,7 +202,7 @@ function OfferList({
     return (
       <div className="empty-block">
         {leg.fetched > 0
-          ? `All ${leg.fetched} offers were filtered out. Try loosening completion rate, order count, or the amount band.`
+          ? `All ${leg.fetched} offers were filtered out. Check completion rate, order count, online window, payment methods, publisher type and the amount band.`
           : `No ${leg.fiat} advertisements right now.`}
       </div>
     );
@@ -205,6 +215,7 @@ function OfferList({
           offer={offer}
           rank={index + 1}
           isBest={offer.advNo === leg.best?.advNo}
+          isFavorite={offer.isFavorite || favorites.includes(offer.userNo)}
           onToggleFavorite={() => onToggleFavorite(offer.userNo)}
         />
       ))}
@@ -266,7 +277,7 @@ export function Dashboard({
         ? "capped"
         : "floored";
   const gain =
-    snapshot && snapshot.j != null && snapshot.mid != null
+    snapshot && !stale && snapshot.j != null && snapshot.mid != null
       ? refSize * (snapshot.j - snapshot.mid)
       : null;
 
@@ -332,7 +343,7 @@ export function Dashboard({
           </div>
           <div className="fact">
             <div className="fact-k">Tradable size</div>
-            <div className={`fact-v num ${snapshot?.feasible.ok ? "green" : ""}`}>
+            <div className="fact-v num">
               {snapshot?.feasible.ok
                 ? `${fmtAmount(snapshot.feasible.aMin)}–${fmtAmount(snapshot.feasible.aMax)} ${settings.fiatA}`
                 : "–"}
@@ -376,27 +387,34 @@ export function Dashboard({
         </div>
       ) : null}
 
-      {gain != null && refSize != null ? (
-        <div className="banner green">
-          <span className="banner-icon">↗</span>
+      {gain != null && snapshot?.j != null ? (
+        <div className={`banner ${alert ? "green" : gain >= 0 ? "warn" : "err"}`}>
+          <span className="banner-icon">{gain >= 0 ? "↗" : "↘"}</span>
           <span>
             <b>
               {sizeQuote === "capped" ? "Up to " : sizeQuote === "floored" ? "Minimum " : ""}
               {fmtGrouped(refSize)} {settings.fiatA}
             </b>{" "}
-            buys{" "}
-            <b>
-              {fmtGrouped(refSize * (snapshot!.j as number))} {settings.fiatB}
-            </b>{" "}
-            at the P2P rate — <b>{fmtGrouped(gain)} {settings.fiatB}</b> more than the bank.
+            buys <b>{fmtGrouped(refSize * snapshot.j)} {settings.fiatB}</b> at the P2P rate —{" "}
+            {gain >= 0 ? (
+              <>
+                <b>+{fmtGrouped(gain)} {settings.fiatB}</b> versus the bank
+                {alert ? "." : ", but below your target."}
+              </>
+            ) : (
+              <>
+                <b>{fmtGrouped(Math.abs(gain))} {settings.fiatB} less</b> than the bank rate
+                right now.
+              </>
+            )}
           </span>
         </div>
       ) : null}
 
       {buyLeg && sellLeg ? (
         <div className="legs">
-          <LegCard leg={buyLeg} />
-          <LegCard leg={sellLeg} />
+          <LegCard leg={buyLeg} favorites={settings.favoriteBuyUsers} />
+          <LegCard leg={sellLeg} favorites={settings.favoriteSellUsers} />
         </div>
       ) : null}
 
@@ -426,10 +444,18 @@ export function Dashboard({
         </div>
         <div className="offer-scroll">
           {tab === "buy" && buyLeg ? (
-            <OfferList leg={buyLeg} onToggleFavorite={(userNo) => onToggleFavorite("buy", userNo)} />
+            <OfferList
+              leg={buyLeg}
+              favorites={settings.favoriteBuyUsers}
+              onToggleFavorite={(userNo) => onToggleFavorite("buy", userNo)}
+            />
           ) : null}
           {tab === "sell" && sellLeg ? (
-            <OfferList leg={sellLeg} onToggleFavorite={(userNo) => onToggleFavorite("sell", userNo)} />
+            <OfferList
+              leg={sellLeg}
+              favorites={settings.favoriteSellUsers}
+              onToggleFavorite={(userNo) => onToggleFavorite("sell", userNo)}
+            />
           ) : null}
           <div className="list-hint">
             Prices refresh every {snapshot?.refreshSecs ?? settings.refreshSecs}s · tap an offer to
