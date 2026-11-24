@@ -27,9 +27,31 @@ pub fn load(app: &tauri::AppHandle) -> Settings {
         Err(_) => return Settings::default(),
     };
     match serde_json::from_slice::<Settings>(&raw) {
-        Ok(settings) => settings.validate().unwrap_or_default(),
+        Ok(settings) => repair(settings),
         Err(_) => Settings::default(),
     }
+}
+
+/// A single bad field must not throw away the user's whole configuration.
+fn repair(mut settings: Settings) -> Settings {
+    if settings.clone().validate().is_ok() {
+        return settings;
+    }
+
+    if crate::model::normalize_fiat(&settings.fiat_a).is_none() {
+        settings.fiat_a = "AED".to_string();
+    }
+    if crate::model::normalize_fiat(&settings.fiat_b).is_none() {
+        settings.fiat_b = "MAD".to_string();
+    }
+    if settings.fiat_a == settings.fiat_b {
+        settings.fiat_b = if settings.fiat_a == "MAD" { "AED" } else { "MAD" }.to_string();
+    }
+    if !settings.threshold.is_finite() || settings.threshold <= 0.0 {
+        settings.threshold = 2.75;
+    }
+
+    settings.validate().unwrap_or_default()
 }
 
 pub fn save(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> {

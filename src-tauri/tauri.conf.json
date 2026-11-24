@@ -16,7 +16,7 @@
         "label": "main",
         "title": "CrossRate",
         "width": 408,
-        "height": 724,
+        "height": 640,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -31,12 +31,17 @@
     "security": {
       "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost",
       "devCsp": "default-src 'self' http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:1420 ws://127.0.0.1:1420 ipc: http://ipc.localhost",
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -50,9 +55,18 @@
     "macOS": {
       "minimumSystemVersion": "11.0",
       "dmg": {
-        "appPosition": { "x": 180, "y": 220 },
-        "applicationFolderPosition": { "x": 480, "y": 220 },
-        "windowSize": { "width": 660, "height": 400 }
+        "appPosition": {
+          "x": 180,
+          "y": 220
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 220
+        },
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
       }
     }
   }

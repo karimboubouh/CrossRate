@@ -137,8 +137,24 @@ pub fn feasibility(best_buy: &Offer, best_sell: &Offer, settings: &Settings) -> 
     let sell_usdt = (sell_low / best_sell.price, sell_high / best_sell.price);
 
     let usdt_min = buy_usdt.0.max(sell_usdt.0);
-    let usdt_max = buy_usdt.1.min(sell_usdt.1);
+    let mut usdt_max = buy_usdt.1.min(sell_usdt.1);
+
+    // An ad's advertised limit can exceed what the advertiser still holds; the
+    // real executable size is bounded by the available balance on both legs.
+    let liquidity = [best_buy.available_usdt, best_sell.available_usdt]
+        .into_iter()
+        .filter(|value| *value > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    if liquidity.is_finite() {
+        usdt_max = usdt_max.min(liquidity);
+    }
     if usdt_max < usdt_min || usdt_max <= 0.0 {
+        if liquidity.is_finite() && liquidity < usdt_min {
+            return Feasible::none(format!(
+                "Not enough balance — only about {} USDT is left on the book",
+                fmt_amount_compact(liquidity)
+            ));
+        }
         return Feasible::none(format!(
             "Size mismatch — {} leg allows {}–{} USDT, {} leg needs {}–{} USDT",
             settings.fiat_a,
@@ -178,6 +194,7 @@ impl Settings {
 }
 
 /// Human description used in the alert body.
+#[allow(dead_code)]
 pub fn describe_trade_size(best_buy: &Offer, best_sell: &Offer, settings: &Settings) -> String {
     let feasible = feasibility(best_buy, best_sell, settings);
     if !feasible.ok {
@@ -317,6 +334,24 @@ mod tests {
         let f = feasibility(&buy, &sell, &s);
         assert!(!f.ok);
         assert!(f.reason.contains("Size mismatch"), "{}", f.reason);
+    }
+
+    #[test]
+    fn caps_tradable_size_by_remaining_balance() {
+        let s = settings();
+        let mut buy = offer("buyer", 3.69, 1_000.0, 50_000.0);
+        let mut sell = offer("seller", 10.85, 1_000.0, 100_000.0);
+        buy.available_usdt = 50_000.0;
+        sell.available_usdt = 1_200.0; // seller only has 1,200 USDT left
+
+        let f = feasibility(&buy, &sell, &s);
+        assert!(f.ok, "{}", f.reason);
+        assert!(f.usdt_max <= 1_200.0 + 0.01, "usdt_max={}", f.usdt_max);
+
+        sell.available_usdt = 10.0; // now below the buyer's minimum
+        let f = feasibility(&buy, &sell, &s);
+        assert!(!f.ok);
+        assert!(f.reason.contains("Not enough balance"), "{}", f.reason);
     }
 
     #[test]

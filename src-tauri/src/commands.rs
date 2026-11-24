@@ -22,19 +22,37 @@ pub async fn save_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<Settings, String> {
+    // Serialise writes: concurrent saves (e.g. tapping a favourite while the
+    // settings sheet is open) must not interleave memory and disk.
+    let _guard = state.save_lock.lock().await;
+
     let previous = state.settings.read().await.clone();
     let validated = settings.validate()?;
     settings_store::save(&app, &validated)?;
+
+    let pair_changed =
+        previous.fiat_a != validated.fiat_a || previous.fiat_b != validated.fiat_b;
+    let mid_changed = pair_changed || previous.mid_override != validated.mid_override;
 
     *state.settings.write().await = validated.clone();
     state
         .settings_rev
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    {
-        let mut alert = state.alert.lock().await;
-        alert.active = false;
-        alert.since = None;
+    // Only a pair change makes the current market meaningless. Other edits
+    // (favourites, theme, threshold) must NOT re-arm the alert, otherwise the
+    // same still-open crossing would notify a second time.
+    if pair_changed {
+        {
+            let mut alert = state.alert.lock().await;
+            alert.active = false;
+            alert.since = None;
+        }
+        *state.snapshot.write().await = None;
+    }
+
+    if mid_changed {
+        *state.fx.write().await = crate::fx::FxState::default();
     }
 
     if previous.launch_at_login != validated.launch_at_login {
@@ -42,13 +60,15 @@ pub async fn save_settings(
     }
 
     let _ = app.emit("crossrate://settings", &validated);
-    state.wake.notify_waiters();
+    // notify_one stores a permit, so the wake cannot be lost if the engine is
+    // in the middle of a poll.
+    state.wake.notify_one();
     Ok(validated)
 }
 
 #[tauri::command]
 pub async fn refresh_now(state: State<'_, AppState>) -> Result<(), String> {
-    state.wake.notify_waiters();
+    state.wake.notify_one();
     Ok(())
 }
 
@@ -144,6 +164,16 @@ pub async fn test_alert(
     Ok(())
 }
 
+/// Native popovers hug their content; the webview reports the measured height.
+#[tauri::command]
+pub fn set_window_height(window: tauri::WebviewWindow, height: f64) {
+    if !height.is_finite() {
+        return;
+    }
+    let target = height.clamp(320.0, 780.0);
+    let _ = window.set_size(tauri::LogicalSize::new(408.0, target));
+}
+
 #[tauri::command]
 pub fn hide_window(window: tauri::WebviewWindow) {
     let _ = window.hide();
@@ -157,9 +187,12 @@ pub fn quit_app(app: AppHandle) {
 pub fn apply_autostart(app: &AppHandle, enabled: bool) {
     use tauri_plugin_autostart::ManagerExt;
     let autolaunch = app.autolaunch();
-    if enabled {
-        let _ = autolaunch.enable();
+    let result = if enabled {
+        autolaunch.enable()
     } else {
-        let _ = autolaunch.disable();
+        autolaunch.disable()
+    };
+    if let Err(error) = result {
+        crate::util::log_line(&format!("autostart update failed: {error}"));
     }
 }

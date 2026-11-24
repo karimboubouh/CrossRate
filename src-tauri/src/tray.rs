@@ -60,7 +60,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             }
             "refresh" => {
                 if let Some(state) = app.try_state::<AppState>() {
-                    state.wake.notify_waiters();
+                    state.wake.notify_one();
                 }
             }
             "quit" => app.exit(0),
@@ -217,7 +217,8 @@ pub fn update(app: &AppHandle, snapshot: &Snapshot) {
         Some(title.clone())
     });
 
-    let alert_visual = snapshot.alert_active && snapshot.alert_badge;
+    // Never advertise an alert from stale data.
+    let alert_visual = snapshot.alert_active && snapshot.alert_badge && !snapshot.stale;
     let changed = app
         .state::<crate::state::AppState>()
         .tray_alerting
@@ -243,7 +244,13 @@ pub fn update(app: &AppHandle, snapshot: &Snapshot) {
             snapshot.fiat_a,
             snapshot.fiat_b,
             fmt_rate(j),
-            if snapshot.alert_active { " · ALERT" } else { "" }
+            if snapshot.alert_active && !snapshot.stale {
+                " · ALERT"
+            } else if snapshot.stale {
+                " · stale"
+            } else {
+                ""
+            }
         ),
         None => format!(
             "CrossRate · {} → {} · waiting for data",

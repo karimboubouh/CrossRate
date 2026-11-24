@@ -1,0 +1,3 @@
+{"fiatA":"AED","fiatB":"MAD","threshold":1.0,"refreshSecs":10,
+ "buyFilters":{"minCompletionRate":0.999,"minMonthOrders":100000,"minPositiveRate":0,"onlineOnly":false,"onlineWithinSecs":900,"payTypes":[],"publisher":"any"},
+ "buyMinAmount":1000,"buyMaxAmount":50000}

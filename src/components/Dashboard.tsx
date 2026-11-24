@@ -199,7 +199,7 @@ function OfferList({
   }
   return (
     <>
-      {leg.offers.map((offer, index) => (
+      {leg.offers.slice(0, 8).map((offer, index) => (
         <OfferRow
           key={offer.advNo}
           offer={offer}
@@ -231,20 +231,40 @@ export function Dashboard({
 }) {
   const [tab, setTab] = useState<"buy" | "sell">("buy");
 
-  const alert = snapshot?.alertActive ?? false;
+  const stale = snapshot?.stale ?? false;
+  const alert = (snapshot?.alertActive ?? false) && !stale;
   const rateMet = snapshot?.rateMet ?? false;
   const noSize = rateMet && snapshot?.feasible && !snapshot.feasible.ok;
 
-  const statusClass = alert ? "status active" : noSize ? "status warn" : "status";
-  const statusText = alert
-    ? "Alert active"
-    : noSize
-      ? "Rate met · no size"
-      : snapshot?.j == null
-        ? "No data"
-        : "Below threshold";
+  const statusClass = stale
+    ? "status warn"
+    : alert
+      ? "status active"
+      : noSize
+        ? "status warn"
+        : "status";
+  const statusText = stale
+    ? "Stale data"
+    : alert
+      ? "Alert active"
+      : noSize
+        ? "Rate met · no size"
+        : snapshot?.j == null
+          ? "No data"
+          : "Below threshold";
 
-  const refSize = settings.notifyAmount;
+  // Quote the configured size, but never more than is actually tradable now.
+  const wanted = settings.notifyAmount;
+  const refSize =
+    snapshot?.feasible.ok === true
+      ? Math.min(Math.max(wanted, snapshot.feasible.aMin), snapshot.feasible.aMax)
+      : wanted;
+  const sizeQuote =
+    snapshot?.feasible.ok !== true || Math.abs(refSize - wanted) <= 0.5
+      ? "exact"
+      : refSize > wanted
+        ? "capped"
+        : "floored";
   const gain =
     snapshot && snapshot.j != null && snapshot.mid != null
       ? refSize * (snapshot.j - snapshot.mid)
@@ -321,17 +341,19 @@ export function Dashboard({
         </div>
       </div>
 
-      {snapshot?.error ? (
+      {snapshot?.stale ? (
+        <div className="banner warn">
+          <span className="banner-icon">!</span>
+          <span>
+            <b>Showing the last good reading</b>
+            {snapshot.error ? ` — ${snapshot.error}` : ""}. Prices below may be out
+            of date.
+          </span>
+        </div>
+      ) : snapshot?.error ? (
         <div className="banner err">
           <span className="banner-icon">!</span>
           <span>{snapshot.error}</span>
-        </div>
-      ) : null}
-
-      {snapshot?.stale && !snapshot.error ? (
-        <div className="banner warn">
-          <span className="banner-icon">!</span>
-          <span>Showing the last good reading.</span>
         </div>
       ) : null}
 
@@ -358,7 +380,11 @@ export function Dashboard({
         <div className="banner green">
           <span className="banner-icon">↗</span>
           <span>
-            <b>{fmtGrouped(refSize)} {settings.fiatA}</b> buys{" "}
+            <b>
+              {sizeQuote === "capped" ? "Up to " : sizeQuote === "floored" ? "Minimum " : ""}
+              {fmtGrouped(refSize)} {settings.fiatA}
+            </b>{" "}
+            buys{" "}
             <b>
               {fmtGrouped(refSize * (snapshot!.j as number))} {settings.fiatB}
             </b>{" "}

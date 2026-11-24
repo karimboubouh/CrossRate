@@ -22,7 +22,7 @@ Built with **Tauri v2** (Rust backend) and **React 19 + TypeScript** frontend. N
 2. Rank the offers, apply your filters, and compute the implied cross rate `j`.
 3. Compare `j` with your threshold `R` and with the mid-market FX rate.
 4. If `j >= R` **and** a trade size exists that both counterparties will accept, activate the alert: an accent-tinted menu bar icon, live `j` beside it, a native notification and a macOS system sound.
-5. Stay quiet until the opportunity disappears (`j < R` or the size becomes infeasible), so you get one alert per crossing, not one per poll.
+5. Stay quiet until the rate drops back below `R`, so you get one alert per crossing, not one per poll. A momentarily thin book does not re-arm the alert, and a failed poll (unknown data) neither arms nor clears it.
 
 ## The cross-rate formula
 
@@ -81,7 +81,7 @@ Binance P2P is an open marketplace, so the top of the book is not always a real 
 - **Tooltip** — pair, current `j`, and `ALERT` when active.
 - **Popup placement** — anchored directly under the menu bar icon: a tray click places it using the click position, everything else measures the status item's geometry, and if neither is available it falls back to the top-right corner of the active screen, just under the menu bar — never the centre of the display.
 - **When it opens** — on first launch (before a settings file exists), on a left click of the tray icon, from *Open CrossRate* in the tray menu, and whenever macOS activates the app while no window is visible (for example after clicking a notification).
-- **Left click** — opens the 408×724 popup; it hides automatically when it loses focus, like a native popover.
+- **Left click** — opens the popup: 408 pt wide, and its height hugs the content (clamped to 320–780 pt), like a native popover; it hides automatically when it loses focus.
 - **Right click** — menu with *Open CrossRate*, *Refresh now*, *Settings…*, *Quit CrossRate*.
 - Running as a menu bar accessory app: no Dock icon and no app switcher entry; quit from the tray menu.
 
@@ -95,8 +95,14 @@ The notification leads with the **rate you can trade at**, not with internal var
 
 The first line is `currency A → currency B · P2P rate`, and the body quotes the money at
 the configurable **alert trade size** (default 10,000 of currency A) against the
-mid-market rate. The same wording is used by **Settings → Alerts → Test alert**, so you
-can judge the copy without waiting for a real opportunity.
+mid-market rate. The quoted amount is clamped into the range that is actually tradable at
+that moment, so the copy never promises more than the book can fill — quoting 10,000 AED
+when only ~8,000 is tradable would be misleading. When the configured size is capped by
+the available book the body is prefixed with **Up to** (*Up to 8,000 AED buys …*); when
+it is below the smallest tradable ticket it is prefixed with **Minimum**. The in-popup
+profit line uses the same clamp and the same prefixes. The same wording is used by
+**Settings → Alerts → Test alert**, so you can judge the copy without waiting for a real
+opportunity.
 
 Clicking a CrossRate notification activates the app and opens the popup, so the alert
 copy and the market behind it are one click apart. macOS calls the app's reopen hook
@@ -122,7 +128,7 @@ Settings are saved as JSON and applied on the next poll (a save wakes the pollin
 |---|---|---|
 | Currency A → Currency B | AED → MAD | 64 common currencies in the picker; the backend accepts any 3-letter ISO code |
 | Alert threshold `R` | `2.75` B per A | Must be positive |
-| Alert trade size | `10,000` A | Amount quoted in the notification and profit line (e.g. “10,000 AED buys 29,315 MAD”) |
+| Alert trade size | `10,000` A | Amount quoted in the notification and profit line, clamped to what is tradable at the time (e.g. “10,000 AED buys 29,315 MAD”, or “Up to …” / “Minimum …”) |
 | Refresh interval | `15 s` | Clamped to 5–600 s |
 | Buy-leg amount band | `1,000–50,000` A | Ads outside the band are filtered out |
 | Sell-leg amount band | `5,000–100,000` B | Same, in currency B |
@@ -164,7 +170,7 @@ pnpm app:build     # release bundle: .app and .dmg
 
 `pnpm app:build` writes the bundles to `src-tauri/target/release/bundle/` (`macos/CrossRate.app` and `dmg/CrossRate_0.1.0_*.dmg`). The first `cargo build` can take 6–10 minutes while dependencies compile; later builds are incremental.
 
-Other useful scripts: `pnpm build` type-checks and builds the frontend only, `pnpm dev` runs the Vite dev server on its own (the UI then runs in a browser mock mode).
+Other useful scripts: `pnpm build` type-checks and builds the frontend only, `pnpm dev` runs the Vite dev server on its own (in a plain browser the UI runs against development-only preview fixtures, which are not part of the shipped app).
 
 ### Sandbox / custom cache locations
 
@@ -214,7 +220,7 @@ No Binance account, API key, secret, or login is required, and no data is sent a
 - `src-tauri/src/engine.rs` — polling loop, cross-rate and alert state machine, fragility calculation, snapshot emission.
 - `src-tauri/src/fx.rs` — keyless mid-market fetch with cache and retry backoff.
 - `src-tauri/src/tray.rs`, `alerts.rs`, `settings.rs`, `commands.rs` — tray item and menu, notifications/sounds, persisted settings, IPC surface.
-- `src/` — React 19 dashboard and settings UI. Without the Tauri IPC bridge (plain `pnpm dev`) the UI serves mock snapshots so it can be previewed in a browser.
+- `src/` — React 19 dashboard and settings UI. In a plain browser (`pnpm dev`) a development-only preview layer (`src/lib/preview.ts`, fixtures selected with `?scenario=alert|idle|empty|settings`) supplies mock snapshots for design work; it is loaded through an `import.meta.env.DEV`-guarded dynamic import in `src/main.tsx`, so production builds contain no fixture data or references.
 
 Design notes: the Rust side performs all HTTP, so there are no CORS issues and no browser networking; polls of the two legs run concurrently; settings are written atomically (temp file + rename); consecutive poll failures are backed off up to 120 s; and the native notification path falls back to `osascript` on unsigned builds.
 

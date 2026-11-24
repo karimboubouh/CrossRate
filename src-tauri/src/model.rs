@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 pub const ASSET: &str = "USDT";
 /// Offers requested per page from the Binance P2P search endpoint.
 pub const PAGE_ROWS: u32 = 20;
-/// How many offers we forward to the UI per leg.
-pub const MAX_OFFERS_SHOWN: usize = 8;
 
 /// Alert sounds that ship with macOS (`/System/Library/Sounds/<name>.aiff`).
 pub const SOUNDS: &[&str] = &["Glass", "Ping", "Submarine", "Funk", "Hero", "Pop", "Purr", "Tink"];

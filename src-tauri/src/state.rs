@@ -26,6 +26,8 @@ pub struct AppState {
     pub wake: Notify,
     pub fx: RwLock<FxState>,
     pub alert: Mutex<AlertRuntime>,
+    /// Serialises settings writes so concurrent saves cannot interleave.
+    pub save_lock: Mutex<()>,
     /// Last alert-visual state pushed to the tray (avoids repainting).
     pub tray_alerting: std::sync::atomic::AtomicBool,
     /// Cached payment-method discovery: key -> (fetched_at_ms, methods).
@@ -60,6 +62,7 @@ impl AppState {
             wake: Notify::new(),
             fx: RwLock::new(FxState::default()),
             alert: Mutex::new(AlertRuntime::default()),
+            save_lock: Mutex::new(()),
             tray_alerting: std::sync::atomic::AtomicBool::new(false),
             pay_cache: Mutex::new(HashMap::new()),
         }

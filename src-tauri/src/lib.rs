@@ -32,6 +32,7 @@ pub fn run() {
             commands::test_alert,
             commands::hide_window,
             commands::quit_app,
+            commands::set_window_height,
             commands::get_accent,
         ])
         .setup(|app| {

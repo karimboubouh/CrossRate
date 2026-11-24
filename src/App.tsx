@@ -77,6 +77,22 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // Size the native popover to its content, like a real macOS popover.
+  const lastHeight = useRef(0);
+  useEffect(() => {
+    if (api.isMock) return;
+    const timer = window.setTimeout(() => {
+      const panel = document.querySelector(".app");
+      if (!panel) return;
+      const height = Math.ceil(panel.getBoundingClientRect().height);
+      if (Number.isFinite(height) && Math.abs(height - lastHeight.current) > 2) {
+        lastHeight.current = height;
+        void api.setWindowHeight(height);
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [snapshot, view, settings]);
+
   const handleSave = useCallback(
     async (next: Settings) => {
       setSaving(true);
