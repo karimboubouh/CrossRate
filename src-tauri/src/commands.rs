@@ -104,14 +104,26 @@ pub fn play_sound_cmd(name: String) {
     crate::alerts::play_sound(&name);
 }
 
+/// Sends a notification with the exact production copy, so the user can judge
+/// the wording without waiting for a real opportunity.
 #[tauri::command]
-pub fn test_alert(app: AppHandle, sound: String) {
+pub async fn test_alert(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    sound: String,
+) -> Result<(), String> {
     crate::alerts::play_sound(&sound);
-    crate::alerts::notify(
-        &app,
-        "CrossRate · test alert",
-        "Notifications and sound are working. A real alert looks like this.",
-    );
+    let settings = state.settings.read().await.clone();
+    let snapshot = state.snapshot.read().await.clone();
+    let (title, body) = match snapshot {
+        Some(snapshot) if snapshot.j.is_some() => crate::engine::alert_text(&snapshot, &settings),
+        _ => (
+            format!("{} → {} · waiting for data", settings.fiat_a, settings.fiat_b),
+            "No live market data yet — the alert will look like this once quotes load.".to_string(),
+        ),
+    };
+    crate::alerts::notify(&app, &title, &body);
+    Ok(())
 }
 
 #[tauri::command]

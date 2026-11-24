@@ -497,3 +497,86 @@ mod tests {
         assert_eq!(err, "blocked");
     }
 }
+
+/// Hits the real Binance P2P endpoint. Run with:
+/// `cargo test --lib live_p2p -- --ignored --nocapture`
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .user_agent("CrossRate/0.1 (integration test)")
+            .timeout(std::time::Duration::from_secs(25))
+            .build()
+            .expect("client")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires network access to p2p.binance.com"]
+    async fn live_p2p_aed_to_mad_round_trip() {
+        let http = client();
+
+        let buy = search(&http, &Query::new("AED", LegSide::Buy))
+            .await
+            .expect("AED buy book");
+        let sell = search(&http, &Query::new("MAD", LegSide::Sell))
+            .await
+            .expect("MAD sell book");
+
+        assert!(!buy.offers.is_empty(), "no AED offers returned");
+        assert!(!sell.offers.is_empty(), "no MAD offers returned");
+
+        let mut buy_sorted = buy.offers.clone();
+        let mut sell_sorted = sell.offers.clone();
+        crate::filters::sort(&mut buy_sorted, LegSide::Buy);
+        crate::filters::sort(&mut sell_sorted, LegSide::Sell);
+
+        let best_buy = &buy_sorted[0];
+        let best_sell = &sell_sorted[0];
+        let j = best_sell.price / best_buy.price;
+
+        println!(
+            "AED buy {:.3} ({} ads, {} parsed) · MAD sell {:.3} ({} ads, {} parsed) · j = {:.4} MAD/AED",
+            best_buy.price, buy.total, buy.offers.len(), best_sell.price, sell.total, sell.offers.len(), j
+        );
+        println!(
+            "  top buy:  {} [{:?}] finish {:.1}% orders {}",
+            best_buy.nickname,
+            best_buy.user_type,
+            best_buy.completion_rate * 100.0,
+            best_buy.month_orders
+        );
+        println!(
+            "  top sell: {} [{:?}] finish {:.1}% orders {}",
+            best_sell.nickname,
+            best_sell.user_type,
+            best_sell.completion_rate * 100.0,
+            best_sell.month_orders
+        );
+
+        // Sanity bounds: AED/USDT ~3.67 and MAD/USDT ~10.8 at the time of writing.
+        assert!(
+            best_buy.price > 2.0 && best_buy.price < 6.0,
+            "AED price looks wrong: {}",
+            best_buy.price
+        );
+        assert!(
+            best_sell.price > 5.0 && best_sell.price < 30.0,
+            "MAD price looks wrong: {}",
+            best_sell.price
+        );
+        assert!(j > 1.0 && j < 10.0, "cross rate looks wrong: {j}");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires network access to p2p.binance.com"]
+    async fn live_pay_method_discovery() {
+        let http = client();
+        let methods = discover_pay_methods(&http, "MAD", LegSide::Buy)
+            .await
+            .expect("MAD pay methods");
+        println!("MAD buy pay methods: {:?}", methods);
+        assert!(!methods.is_empty(), "no payment methods discovered");
+    }
+}

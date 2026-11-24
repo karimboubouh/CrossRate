@@ -199,6 +199,7 @@ export function mockSettings(): Settings {
     alertSound: true,
     alertBadge: true,
     soundName: "Glass",
+    notifyAmount: 10000,
     midOverride: null,
     outlierPct: 3,
     launchAtLogin: true,

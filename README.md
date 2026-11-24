@@ -83,7 +83,27 @@ Binance P2P is an open marketplace, so the top of the book is not always a real 
 - **Right click** — menu with *Open CrossRate*, *Refresh now*, *Settings…*, *Quit CrossRate*.
 - Running as a menu bar accessory app: no Dock icon and no app switcher entry; quit from the tray menu.
 
-Inside the popup: the current pair, a hero reading of `j` vs `R` vs mid, spread versus mid, both leg cards with their best offer, the executable size, up to 8 ranked offers per leg, and the settings screen (pair picker, threshold, refresh, amount bands, per-leg filters, favourites, alert options, launch at login).
+### What an alert says
+
+The notification leads with the **rate you can trade at**, not with internal variables:
+
+> **AED → MAD · 2.931**
+> 10,000 AED buys 29,315 MAD. Bank rate 2.726 — +2,054 MAD (+7.5%) better.
+
+The first line is `currency A → currency B · P2P rate`, and the body quotes the money at
+the configurable **alert trade size** (default 10,000 of currency A) against the
+mid-market rate. The same wording is used by **Settings → Alerts → Test alert**, so you
+can judge the copy without waiting for a real opportunity.
+
+### Which offer pair is used
+
+The cheapest buy ad and the most expensive sell ad are not always tradable at the same
+size. CrossRate therefore evaluates the filtered offers as **pairs** and headlines the
+best pair whose limits actually overlap — so the price you see is one you can execute.
+If no pair overlaps, the rate is still shown but the alert stays quiet and the popup
+explains why ("Rate is above your target but not tradable").
+
+Inside the popup: the current pair, a hero reading of the P2P rate against your target and the bank rate, the spread versus the bank, both leg cards with their best offer, the executable size, up to 8 ranked offers per leg, and the settings screen (pair picker, threshold, refresh, amount bands, per-leg filters, favourites, alert options, launch at login).
 
 ## Configuration
 
@@ -93,6 +113,7 @@ Settings are saved as JSON and applied on the next poll (a save wakes the pollin
 |---|---|---|
 | Currency A → Currency B | AED → MAD | 64 common currencies in the picker; the backend accepts any 3-letter ISO code |
 | Alert threshold `R` | `2.75` B per A | Must be positive |
+| Alert trade size | `10,000` A | Amount quoted in the notification and profit line (e.g. “10,000 AED buys 29,315 MAD”) |
 | Refresh interval | `15 s` | Clamped to 5–600 s |
 | Buy-leg amount band | `1,000–50,000` A | Ads outside the band are filtered out |
 | Sell-leg amount band | `5,000–100,000` B | Same, in currency B |

@@ -8,7 +8,7 @@ use crate::fx;
 use crate::model::*;
 use crate::state::AppState;
 use crate::tray;
-use crate::util::now_ms;
+use crate::util::{fmt_amount_compact, fmt_amount_grouped, fmt_rate, now_ms};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -43,6 +43,8 @@ pub async fn run(app: AppHandle) {
             fetch_leg(&state.http, &settings, LegSide::Buy),
             fetch_leg(&state.http, &settings, LegSide::Sell)
         );
+        // Headline rate comes from the best pair that is actually tradable.
+        let (buy_view, sell_view) = resolve_pair(buy_view, sell_view, &settings);
 
         let now = now_ms();
         let next_poll_ms = now + (settings.refresh_secs as i64 * 1000);
@@ -84,7 +86,10 @@ pub async fn run(app: AppHandle) {
         } else {
             let mut alert = state.alert.lock().await;
             let was_active = alert.active;
-            let active = snapshot.alert_active;
+            // A missing tradable size blocks a *new* alert, but an alert that is
+            // already live only clears when the rate itself drops below R.
+            // Otherwise a momentarily thin book would re-arm and re-notify.
+            let active = snapshot.rate_met && (snapshot.feasible.ok || was_active);
             if active && !was_active {
                 alert.since = Some(now);
                 alert.count = alert.count.saturating_add(1);
@@ -101,6 +106,7 @@ pub async fn run(app: AppHandle) {
 
         if fresh_alert {
             let (title, body) = alert_text(&snapshot, &settings);
+            crate::util::log_line(&format!("ALERT \"{title}\" | \"{body}\""));
             if settings.alert_notification {
                 alerts::notify(&app, &title, &body);
             }
@@ -112,6 +118,45 @@ pub async fn run(app: AppHandle) {
         *state.snapshot.write().await = Some(snapshot.clone());
         let _ = app.emit(SNAPSHOT_EVENT, &snapshot);
         tray::update(&app, &snapshot);
+
+        crate::util::log_line(&format!(
+            "{}→{} j={} R={} buy={}({}/{}) sell={}({}/{}) alert={}{}{}{}",
+            snapshot.fiat_a,
+            snapshot.fiat_b,
+            snapshot.j.map(fmt_rate).unwrap_or_else(|| "-".into()),
+            fmt_rate(snapshot.threshold),
+            snapshot
+                .buy
+                .best
+                .as_ref()
+                .map(|o| fmt_rate(o.price))
+                .unwrap_or_else(|| "-".into()),
+            snapshot.buy.passed,
+            snapshot.buy.total,
+            snapshot
+                .sell
+                .best
+                .as_ref()
+                .map(|o| fmt_rate(o.price))
+                .unwrap_or_else(|| "-".into()),
+            snapshot.sell.passed,
+            snapshot.sell.total,
+            snapshot.alert_active,
+            if snapshot.fragile { " fragile" } else { "" },
+            if snapshot.feasible.ok {
+                format!(
+                    " size={}-{}USDT",
+                    fmt_amount_compact(snapshot.feasible.usdt_min),
+                    fmt_amount_compact(snapshot.feasible.usdt_max)
+                )
+            } else {
+                format!(" nosize=\"{}\"", snapshot.feasible.reason)
+            },
+            match &snapshot.error {
+                Some(err) => format!(" error={err}"),
+                None => String::new(),
+            }
+        ));
 
         if poll_failed {
             consecutive_failures = consecutive_failures.saturating_add(1);
@@ -136,8 +181,7 @@ pub async fn run(app: AppHandle) {
     }
 }
 
-async fn fetch_leg(client: &reqwest::Client, settings: &Settings, side: LegSide) -> LegView {
-    let side_filters = side.filters(settings);
+async fn fetch_leg(client: &reqwest::Client, settings: &Settings, side: LegSide) -> LegView {    let side_filters = side.filters(settings);
     let favorites = side.favorites(settings);
     let band = side.amount_band(settings);
     let fiat = side.fiat(settings);
@@ -204,6 +248,42 @@ async fn fetch_leg(client: &reqwest::Client, settings: &Settings, side: LegSide)
         error,
         pay_methods,
     }
+}
+
+/// The cheapest buy ad and the most expensive sell ad are not necessarily
+/// tradable at the same size. Pick the pair with the best cross rate whose
+/// advertised limits actually overlap, so the headline rate is actionable.
+fn resolve_pair(mut buy: LegView, mut sell: LegView, settings: &Settings) -> (LegView, LegView) {
+    let mut best: Option<(usize, usize, f64)> = None;
+
+    for (bi, buy_offer) in buy.offers.iter().enumerate() {
+        if buy_offer.price <= 0.0 {
+            continue;
+        }
+        for (si, sell_offer) in sell.offers.iter().enumerate() {
+            if sell_offer.price <= 0.0 {
+                continue;
+            }
+            if !filters::feasibility(buy_offer, sell_offer, settings).ok {
+                continue;
+            }
+            let j = sell_offer.price / buy_offer.price;
+            if best.map_or(true, |(_, _, current)| j > current) {
+                best = Some((bi, si, j));
+            }
+        }
+    }
+
+    if let Some((bi, si, _)) = best {
+        if let Some(offer) = buy.offers.get(bi).cloned() {
+            buy.best = Some(offer);
+        }
+        if let Some(offer) = sell.offers.get(si).cloned() {
+            sell.best = Some(offer);
+        }
+    }
+
+    (buy, sell)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -322,33 +402,55 @@ fn runner_up(
     (best_alternative, fragile)
 }
 
-fn alert_text(snapshot: &Snapshot, settings: &Settings) -> (String, String) {
-    let j = snapshot.j.unwrap_or(0.0);
-    let title = format!("CrossRate · {} → {}", settings.fiat_a, settings.fiat_b);
+/// Alert copy. Leads with the P2P rate, then the money at the configured size.
+/// Deliberately avoids internal vocabulary: no "j", no "R".
+pub fn alert_text(snapshot: &Snapshot, settings: &Settings) -> (String, String) {
+    let a = &settings.fiat_a;
+    let b = &settings.fiat_b;
+    let rate = snapshot.j.unwrap_or(0.0);
+    let title = format!("{a} → {b} · {}", fmt_rate(rate));
 
-    let spread = snapshot
-        .spread_pct
-        .map(|value| format!(" · {value:+.2}% vs mid"))
-        .unwrap_or_default();
+    let amount = settings.notify_amount.max(1.0);
+    let received = amount * rate;
 
-    let size = match (snapshot.buy.best.as_ref(), snapshot.sell.best.as_ref()) {
-        (Some(buy), Some(sell)) => filters::describe_trade_size(buy, sell, settings),
-        _ => String::new(),
-    };
-
-    let body = if size.is_empty() {
-        format!(
-            "j {:.4} {} per {} ≥ R {:.4}{}",
-            j, settings.fiat_b, settings.fiat_a, settings.threshold, spread
-        )
-    } else {
-        format!(
-            "j {:.4} {} per {} ≥ R {:.4}{} · {}",
-            j, settings.fiat_b, settings.fiat_a, settings.threshold, spread, size
-        )
+    let body = match snapshot.mid {
+        Some(mid) if mid > 0.0 => {
+            let at_bank = amount * mid;
+            let gain = received - at_bank;
+            let pct = (rate / mid - 1.0) * 100.0;
+            format!(
+                "{} {} buys {} {}. Bank rate {} — {} {} ({:+.1}%) better.",
+                fmt_amount_grouped(amount),
+                a,
+                fmt_amount_grouped(received),
+                b,
+                fmt_rate(mid),
+                signed_amount(gain),
+                b,
+                pct
+            )
+        }
+        _ => format!(
+            "{} {} buys {} {} at {} {} per {}.",
+            fmt_amount_grouped(amount),
+            a,
+            fmt_amount_grouped(received),
+            b,
+            fmt_rate(rate),
+            b,
+            a
+        ),
     };
 
     (title, body)
+}
+
+fn signed_amount(value: f64) -> String {
+    if value >= 0.0 {
+        format!("+{}", fmt_amount_grouped(value))
+    } else {
+        fmt_amount_grouped(value)
+    }
 }
 
 #[cfg(test)]
@@ -485,5 +587,189 @@ mod tests {
         assert!(snap.rate_met);
         assert!(!snap.feasible.ok);
         assert!(!snap.alert_active);
+    }
+}
+
+#[cfg(test)]
+mod pair_tests {
+    use super::*;
+
+    fn offer(user: &str, price: f64, min: f64, max: f64) -> Offer {
+        Offer {
+            adv_no: format!("adv-{user}"),
+            user_no: user.to_string(),
+            nickname: user.to_string(),
+            user_type: "merchant".to_string(),
+            user_identity: "MASS_MERCHANT".to_string(),
+            completion_rate: 0.99,
+            positive_rate: 0.98,
+            month_orders: 500,
+            active_secs: 30,
+            price,
+            min_amount: min,
+            max_amount: max,
+            available_usdt: 100_000.0,
+            pay_types: vec!["BANK".to_string()],
+            pay_time_limit: 15,
+            is_favorite: false,
+            suspicious: false,
+        }
+    }
+
+    fn leg(side: LegSide, offers: Vec<Offer>) -> LegView {
+        LegView {
+            side,
+            fiat: if side == LegSide::Buy { "AED".into() } else { "MAD".into() },
+            best: offers.first().cloned(),
+            passed: offers.len(),
+            fetched: offers.len(),
+            offers,
+            total: 10,
+            error: None,
+            pay_methods: vec![],
+        }
+    }
+
+    fn settings() -> Settings {
+        Settings {
+            buy_min_amount: 100.0,
+            buy_max_amount: 50_000.0,
+            sell_min_amount: 100.0,
+            sell_max_amount: 100_000.0,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn skips_cheapest_ad_when_it_cannot_be_paired() {
+        let s = settings();
+        // Cheapest AED ad only trades 100–105 AED (~29 USDT) — too small for the
+        // MAD seller, who needs at least ~1834 USDT.
+        let cheap = offer("cheap", 3.60, 100.0, 105.0);
+        let wide = offer("wide", 3.70, 1_000.0, 50_000.0);
+        let seller = offer("seller", 10.90, 20_000.0, 100_000.0);
+
+        let (buy, sell) = resolve_pair(
+            leg(LegSide::Buy, vec![cheap, wide]),
+            leg(LegSide::Sell, vec![seller]),
+            &s,
+        );
+
+        assert_eq!(buy.best.as_ref().unwrap().nickname, "wide");
+        assert_eq!(sell.best.as_ref().unwrap().nickname, "seller");
+        let f = filters::feasibility(buy.best.as_ref().unwrap(), sell.best.as_ref().unwrap(), &s);
+        assert!(f.ok, "{}", f.reason);
+    }
+
+    #[test]
+    fn keeps_top_offers_when_they_pair_up() {
+        let s = settings();
+        let buy = leg(LegSide::Buy, vec![offer("b1", 3.69, 1_000.0, 50_000.0)]);
+        let sell = leg(LegSide::Sell, vec![offer("s1", 10.85, 5_000.0, 100_000.0)]);
+        let (buy, sell) = resolve_pair(buy, sell, &s);
+        assert_eq!(buy.best.as_ref().unwrap().nickname, "b1");
+        assert_eq!(sell.best.as_ref().unwrap().nickname, "s1");
+    }
+
+    #[test]
+    fn falls_back_to_headline_offers_when_nothing_is_tradable() {
+        let s = settings();
+        let buy = leg(LegSide::Buy, vec![offer("b1", 3.69, 10.0, 20.0)]);
+        let sell = leg(LegSide::Sell, vec![offer("s1", 10.85, 90_000.0, 100_000.0)]);
+        let (buy, sell) = resolve_pair(buy, sell, &s);
+        // Best offers are still reported, and feasibility will explain the gap.
+        assert!(buy.best.is_some());
+        assert!(sell.best.is_some());
+        let f = filters::feasibility(buy.best.as_ref().unwrap(), sell.best.as_ref().unwrap(), &s);
+        assert!(!f.ok);
+    }
+}
+
+#[cfg(test)]
+mod alert_copy_tests {
+    use super::*;
+
+    fn offer(price: f64) -> Offer {
+        Offer {
+            adv_no: "a".into(),
+            user_no: "u".into(),
+            nickname: "MBebars".into(),
+            user_type: "merchant".into(),
+            user_identity: "MASS_MERCHANT".into(),
+            completion_rate: 0.96,
+            positive_rate: 0.98,
+            month_orders: 1007,
+            active_secs: 30,
+            price,
+            min_amount: 1_000.0,
+            max_amount: 100_000.0,
+            available_usdt: 50_000.0,
+            pay_types: vec!["cihmorocco".into()],
+            pay_time_limit: 15,
+            is_favorite: false,
+            suspicious: false,
+        }
+    }
+
+    fn leg(side: LegSide, fiat: &str, offers: Vec<Offer>) -> LegView {
+        LegView {
+            side,
+            fiat: fiat.into(),
+            best: offers.first().cloned(),
+            passed: offers.len(),
+            fetched: offers.len(),
+            offers,
+            total: 10,
+            error: None,
+            pay_methods: vec![],
+        }
+    }
+
+    #[test]
+    fn copy_leads_with_rate_and_uses_configured_amount() {
+        let settings = Settings {
+            fiat_a: "AED".into(),
+            fiat_b: "MAD".into(),
+            threshold: 2.75,
+            notify_amount: 10_000.0,
+            buy_min_amount: 100.0,
+            buy_max_amount: 50_000.0,
+            sell_min_amount: 100.0,
+            sell_max_amount: 100_000.0,
+            ..Settings::default()
+        };
+        // 10.752 / 3.691 = 2.9130 MAD per AED
+        let buy = leg(LegSide::Buy, "AED", vec![offer(3.691)]);
+        let sell = leg(LegSide::Sell, "MAD", vec![offer(10.752)]);
+        let snapshot = compose(&settings, 1, buy, sell, Some(2.726018), "manual".into(), 0, 0, 0);
+
+        let (title, body) = alert_text(&snapshot, &settings);
+        assert_eq!(title, "AED → MAD · 2.913");
+        assert!(body.contains("10,000 AED buys 29,130 MAD"), "{body}");
+        assert!(body.contains("Bank rate 2.726"), "{body}");
+        assert!(body.contains("+1,870 MAD"), "{body}");
+        assert!(body.contains("+6.9%"), "{body}");
+        assert!(!title.contains('j') && !body.contains("R "), "no internal jargon: {title} / {body}");
+    }
+
+    #[test]
+    fn copy_works_without_a_mid_rate() {
+        let settings = Settings {
+            fiat_a: "AED".into(),
+            fiat_b: "MAD".into(),
+            notify_amount: 1_000.0,
+            buy_min_amount: 100.0,
+            buy_max_amount: 50_000.0,
+            sell_min_amount: 100.0,
+            sell_max_amount: 100_000.0,
+            ..Settings::default()
+        };
+        let buy = leg(LegSide::Buy, "AED", vec![offer(3.691)]);
+        let sell = leg(LegSide::Sell, "MAD", vec![offer(10.752)]);
+        let snapshot = compose(&settings, 1, buy, sell, None, "unavailable".into(), 0, 0, 0);
+        let (title, body) = alert_text(&snapshot, &settings);
+        assert_eq!(title, "AED → MAD · 2.913");
+        assert!(body.contains("1,000 AED buys 2,913 MAD"), "{body}");
+        assert!(!body.contains("Bank"), "{body}");
     }
 }

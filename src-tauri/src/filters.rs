@@ -340,6 +340,6 @@ mod tests {
         let text = describe_trade_size(&buy, &sell, &s);
         assert!(text.contains("AED"), "{text}");
         assert!(text.contains("executable"), "{text}");
-        assert_eq!(crate::util::fmt_rate(3.69), "3.6900");
+        assert_eq!(crate::util::fmt_rate(3.69), "3.690");
     }
 }

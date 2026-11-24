@@ -414,6 +414,20 @@ export function SettingsPanel({
               </Field>
             </Section>
 
+            <Section title="Alert trade size">
+              <Field
+                label={`Amount in ${draft.fiatA}`}
+                hint="Used in the notification, e.g. “10,000 AED buys …”"
+              >
+                <NumField
+                  value={draft.notifyAmount}
+                  onChange={(notifyAmount) => patch({ notifyAmount })}
+                  step={1000}
+                  min={1}
+                />
+              </Field>
+            </Section>
+
             <Section title="Sound">
               <Field label="Alert sound">
                 <select

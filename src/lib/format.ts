@@ -6,7 +6,7 @@ export function fmtRate(value: number | null | undefined): string {
   if (value >= 10000) return value.toFixed(0);
   if (value >= 1000) return value.toFixed(1);
   if (value >= 100) return value.toFixed(2);
-  if (value >= 10) return value.toFixed(3);
+  if (value >= 1) return value.toFixed(3);
   return value.toFixed(4);
 }
 
@@ -82,4 +82,13 @@ export function prettyPayType(raw: string): string {
     BankTransferMena: "Bank transfer",
   };
   return map[raw] ?? raw;
+}
+
+/** 10,000 / 29,130 — grouped, matching the Rust notification formatter. */
+export function fmtGrouped(value: number | null | undefined): string {
+  if (value == null || !isFinite(value)) return "–";
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 1 ? 2 : 4;
+  const rounded = Number(value.toFixed(digits));
+  return rounded.toLocaleString("en-US", { maximumFractionDigits: digits });
 }

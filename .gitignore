@@ -16,3 +16,7 @@ tmp/
 shot-*.png
 # Root-level screenshots from local UI verification (real assets live in src-tauri/icons)
 /*.png
+
+# local run/preview artifacts
+.runstate/
+CrossRate-*.zip

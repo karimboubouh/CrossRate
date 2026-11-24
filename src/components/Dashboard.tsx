@@ -5,7 +5,7 @@ import {
   fmtAge,
   fmtAmount,
   fmtCount,
-  fmtMoney,
+  fmtGrouped,
   fmtPct,
   fmtRate,
   fmtRatePct,
@@ -32,23 +32,23 @@ function RateGauge({ j, threshold, mid }: { j: number | null; threshold: number;
           <div
             className="gauge-mark mid"
             style={{ left: `${pos(mid)}%` }}
-            title={`Mid-market ${fmtRate(mid)}`}
+            title={`Bank / mid-market ${fmtRate(mid)}`}
           />
         ) : null}
         <div
           className="gauge-mark threshold"
           style={{ left: `${pos(threshold)}%` }}
-          title={`Threshold ${fmtRate(threshold)}`}
+          title={`Your target ${fmtRate(threshold)}`}
         />
       </div>
       <div className="gauge-legend">
         <span className="item">
           <span className="swatch" style={{ background: "rgba(255,255,255,0.32)" }} />
-          mid {fmtRate(mid)}
+          bank {fmtRate(mid)}
         </span>
         <span className="item">
           <span className="swatch" style={{ background: "var(--amber)" }} />
-          R {fmtRate(threshold)}
+          target {fmtRate(threshold)}
         </span>
       </div>
     </div>
@@ -68,7 +68,7 @@ function LegCard({ leg }: { leg: LegView }) {
         <span className={`leg-tag ${isBuy ? "buy" : "sell"}`}>
           {isBuy ? `BUY ${leg.fiat}` : `SELL ${leg.fiat}`}
         </span>
-        <span className="leg-count">{leg.passed > 0 ? `${leg.passed} pass` : "0"}</span>
+        <span className="leg-count">{leg.passed > 0 ? `${leg.passed} offers` : "none"}</span>
       </div>
       <div className="leg-rate num">
         {best ? fmtRate(best.price) : "–"}
@@ -204,7 +204,7 @@ function OfferList({
           key={offer.advNo}
           offer={offer}
           rank={index + 1}
-          isBest={index === 0}
+          isBest={offer.advNo === leg.best?.advNo}
           onToggleFavorite={() => onToggleFavorite(offer.userNo)}
         />
       ))}
@@ -244,9 +244,9 @@ export function Dashboard({
         ? "No data"
         : "Below threshold";
 
-  const refSize = snapshot?.feasible.ok ? snapshot.feasible.aMin : null;
+  const refSize = settings.notifyAmount;
   const gain =
-    snapshot && refSize != null && snapshot.j != null && snapshot.mid != null
+    snapshot && snapshot.j != null && snapshot.mid != null
       ? refSize * (snapshot.j - snapshot.mid)
       : null;
 
@@ -277,9 +277,13 @@ export function Dashboard({
       <div className="hero">
         <div className="hero-top">
           <div>
-            <div className="hero-label">Cross rate · {settings.fiatB} per {settings.fiatA}</div>
+            <div className="hero-label">
+              {settings.fiatA} → {settings.fiatB} · P2P rate
+            </div>
             <div className="hero-value">
-              <span className="hero-j num">{fmtRate(snapshot?.j ?? null)}</span>
+              <span className={`hero-j num${snapshot?.j == null ? " none" : ""}`}>
+                {fmtRate(snapshot?.j ?? null)}
+              </span>
               <span className="hero-unit">{settings.fiatB}/{settings.fiatA}</span>
             </div>
           </div>
@@ -297,17 +301,17 @@ export function Dashboard({
 
         <div className="hero-facts">
           <div className="fact">
-            <div className="fact-k">Spread vs mid</div>
+            <div className="fact-k">vs bank</div>
             <div className={`fact-v num ${(snapshot?.spreadPct ?? 0) >= 0 ? "green" : "amber"}`}>
               {fmtPct(snapshot?.spreadPct)}
             </div>
           </div>
           <div className="fact">
-            <div className="fact-k">Threshold R</div>
+            <div className="fact-k">Your target</div>
             <div className="fact-v num">{fmtRate(snapshot?.threshold ?? settings.threshold)}</div>
           </div>
           <div className="fact">
-            <div className="fact-k">Executable</div>
+            <div className="fact-k">Tradable size</div>
             <div className={`fact-v num ${snapshot?.feasible.ok ? "green" : ""}`}>
               {snapshot?.feasible.ok
                 ? `${fmtAmount(snapshot.feasible.aMin)}–${fmtAmount(snapshot.feasible.aMax)} ${settings.fiatA}`
@@ -335,8 +339,8 @@ export function Dashboard({
         <div className="banner warn">
           <span className="banner-icon">!</span>
           <span>
-            <b>Fragile alert</b> — only the single best pair clears R. If either top
-            offer disappears this closes.
+            <b>Fragile alert</b> — only one offer pair is this good. If either ad
+            disappears, it closes.
           </span>
         </div>
       ) : null}
@@ -345,7 +349,7 @@ export function Dashboard({
         <div className="banner warn">
           <span className="banner-icon">!</span>
           <span>
-            <b>Rate is above R but not tradable.</b> {snapshot.feasible.reason}
+            <b>Rate is above your target but not tradable.</b> {snapshot.feasible.reason}
           </span>
         </div>
       ) : null}
@@ -354,11 +358,11 @@ export function Dashboard({
         <div className="banner green">
           <span className="banner-icon">↗</span>
           <span>
-            Trading <b>{fmtMoney(refSize, settings.fiatA)}</b> yields{" "}
+            <b>{fmtGrouped(refSize)} {settings.fiatA}</b> buys{" "}
             <b>
-              {fmtMoney(refSize * (snapshot!.j as number), settings.fiatB)}
+              {fmtGrouped(refSize * (snapshot!.j as number))} {settings.fiatB}
             </b>{" "}
-            — about <b>{fmtMoney(gain, settings.fiatB)}</b> above mid.
+            at the P2P rate — <b>{fmtGrouped(gain)} {settings.fiatB}</b> more than the bank.
           </span>
         </div>
       ) : null}
@@ -410,7 +414,7 @@ export function Dashboard({
 
       <div className="footer">
         <span
-          className={`live-dot${snapshot?.error ? " err" : snapshot ? "" : " off"}`}
+          className={`live-dot${snapshot?.error ? " err" : snapshot?.j != null ? "" : " off"}`}
           title={snapshot?.error ? "Polling error" : "Live"}
         />
         <span>

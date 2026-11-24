@@ -531,6 +531,8 @@ select {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   margin: 0 -5px;
   padding: 0 5px 4px;
 }
@@ -1318,4 +1320,24 @@ html.preview #root {
 html.preview .app {
   width: 408px;
   height: 724px;
+}
+
+.list-hint {
+  margin: auto 2px 4px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: rgba(97, 112, 127, 0.85);
+  text-align: center;
+}
+
+.hero-j.none {
+  color: rgba(255, 255, 255, 0.22);
+  font-weight: 500;
+}
+
+.btn.primary:disabled {
+  opacity: 0.32;
+  filter: saturate(0.4);
 }

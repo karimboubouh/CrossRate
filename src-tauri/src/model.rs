@@ -237,6 +237,8 @@ pub struct Settings {
     pub alert_sound: bool,
     pub alert_badge: bool,
     pub sound_name: String,
+    /// Amount of currency A used in alert copy, e.g. "10,000 AED buys …".
+    pub notify_amount: f64,
     /// Pin the mid-market rate instead of using the FX API.
     pub mid_override: Option<f64>,
     /// Flag offers deviating more than this % from the book median.
@@ -263,6 +265,7 @@ impl Default for Settings {
             alert_sound: true,
             alert_badge: true,
             sound_name: "Glass".to_string(),
+            notify_amount: 10_000.0,
             mid_override: None,
             outlier_pct: 3.0,
             launch_at_login: true,
@@ -303,6 +306,9 @@ impl Settings {
 
         if !SOUNDS.contains(&self.sound_name.as_str()) {
             self.sound_name = "Glass".to_string();
+        }
+        if !self.notify_amount.is_finite() || self.notify_amount <= 0.0 {
+            self.notify_amount = 10_000.0;
         }
         if !self.outlier_pct.is_finite() {
             self.outlier_pct = 3.0;

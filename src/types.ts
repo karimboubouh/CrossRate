@@ -103,6 +103,7 @@ export interface Settings {
   alertSound: boolean;
   alertBadge: boolean;
   soundName: string;
+  notifyAmount: number;
   midOverride: number | null;
   outlierPct: number;
   launchAtLogin: boolean;
