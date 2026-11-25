@@ -90,9 +90,18 @@ pub fn run() {
                         // Hidden automatically like a native popover.
                         if std::env::var("CROSSRATE_NO_AUTOHIDE").is_err() {
                             if let Some(state) = window_handle.try_state::<state::AppState>() {
+                                let now = crate::util::now_ms();
+                                let shown_at = state
+                                    .last_shown_ms
+                                    .load(std::sync::atomic::Ordering::Relaxed);
+                                // The blur that happens while the panel is still
+                                // taking focus is not the user clicking away.
+                                if shown_at > 0 && now - shown_at < 400 {
+                                    return;
+                                }
                                 state
                                     .last_hidden_ms
-                                    .store(crate::util::now_ms(), std::sync::atomic::Ordering::Relaxed);
+                                    .store(now, std::sync::atomic::Ordering::Relaxed);
                             }
                             let _ = window_handle.hide();
                         }

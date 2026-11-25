@@ -67,6 +67,21 @@ fn order_front_regardless(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn order_front_regardless(_window: &tauri::WebviewWindow) {}
 
+/// Make CrossRate frontmost so the panel can actually take keyboard focus.
+/// Without this an accessory app shows the window and immediately loses focus,
+/// which (with auto-hide-on-blur) made the popup flash and disappear.
+#[cfg(target_os = "macos")]
+fn activate_app() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    if let Some(mtm) = MainThreadMarker::new() {
+        NSApplication::sharedApplication(mtm).activate();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate_app() {}
+
 #[cfg(not(target_os = "macos"))]
 pub fn float_over_full_screen(_window: &tauri::WebviewWindow) {}
 
@@ -180,7 +195,13 @@ fn clamp_to_monitor(
     (x, y)
 }
 
-fn place_and_show(window: &tauri::WebviewWindow, x: f64, y: f64, origin: &str) {
+fn place_and_show(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    x: f64,
+    y: f64,
+    origin: &str,
+) {
     float_over_full_screen(window);
     let size = window
         .outer_size()
@@ -196,11 +217,18 @@ fn place_and_show(window: &tauri::WebviewWindow, x: f64, y: f64, origin: &str) {
         x.round() as i32,
         y.round() as i32,
     )));
+    activate_app();
     let _ = window.show();
     let _ = window.set_focus();
     // Re-apply after `show`: AppKit can reset collection behaviour on order-in.
     float_over_full_screen(window);
     order_front_regardless(window);
+
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        state
+            .last_shown_ms
+            .store(crate::util::now_ms(), std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Tray click behaves like a native popover button: open, and close if already
@@ -211,7 +239,9 @@ pub fn toggle_popup(app: &AppHandle, position: tauri::PhysicalPosition<f64>) {
         return;
     };
 
-    if window.is_visible().unwrap_or(false) {
+    let visible = window.is_visible().unwrap_or(false);
+    if visible {
+        crate::util::log_line("toggle: visible -> hide");
         let _ = window.hide();
         return;
     }
@@ -223,10 +253,12 @@ pub fn toggle_popup(app: &AppHandle, position: tauri::PhysicalPosition<f64>) {
         let just_hid = hidden_at > 0 && crate::util::now_ms() - hidden_at < 400;
         if just_hid {
             // This very click is what dismissed the panel; stay closed.
+            crate::util::log_line("toggle: hidden <400ms ago -> suppressed reopen");
             return;
         }
     }
 
+    crate::util::log_line("toggle: hidden -> show");
     show_popup_at(app, position);
 }
 
@@ -240,7 +272,7 @@ pub fn show_popup_at(app: &AppHandle, position: tauri::PhysicalPosition<f64>) {
         .outer_size()
         .unwrap_or(tauri::PhysicalSize::new(408, 724));
     let width = size.width as f64;
-    place_and_show(&window, position.x - width / 2.0, position.y + 8.0, "click");
+    place_and_show(app, &window, position.x - width / 2.0, position.y + 8.0, "click");
     let _ = app.emit("crossrate://opened", ());
 }
 
@@ -265,7 +297,7 @@ pub fn show_popup(app: &AppHandle) {
                 "tray rect=({rx:.0},{ry:.0},{rw:.0}x{rh:.0}) scale={scale}"
             ));
             if rw > 0.0 && rh > 0.0 {
-                place_and_show(&window, rx + rw / 2.0 - width / 2.0, ry + rh + 6.0 * scale, "tray");
+                place_and_show(app, &window, rx + rw / 2.0 - width / 2.0, ry + rh + 6.0 * scale, "tray");
                 let _ = app.emit("crossrate://opened", ());
                 return;
             }
@@ -279,7 +311,7 @@ pub fn show_popup(app: &AppHandle) {
         let extent = monitor.size();
         let x = origin.x as f64 + extent.width as f64 - width - 14.0;
         let y = origin.y as f64 + 34.0 * scale;
-        place_and_show(&window, x, y, "corner");
+        place_and_show(app, &window, x, y, "corner");
         let _ = app.emit("crossrate://opened", ());
         return;
     }
@@ -290,6 +322,11 @@ pub fn show_popup(app: &AppHandle) {
 }
 
 /// Refresh the menu bar title + icon from a snapshot.
+/// Physical frame of the status item, for diagnostics.
+pub fn rect(app: &AppHandle) -> Option<tauri::Rect> {
+    app.tray_by_id(TRAY_ID)?.rect().ok().flatten()
+}
+
 pub fn update(app: &AppHandle, snapshot: &Snapshot) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;

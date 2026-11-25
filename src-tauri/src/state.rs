@@ -31,6 +31,10 @@ pub struct AppState {
     /// When the popup last hid itself because it lost focus (ms since epoch).
     /// A tray click right after that is a toggle-off, not a reopen.
     pub last_hidden_ms: std::sync::atomic::AtomicI64,
+    /// When the panel was last shown (ms). Blur events right after a show are
+    /// ignored: an accessory app cannot always take focus instantly, and hiding
+    /// on that first blur made the popup flash and vanish.
+    pub last_shown_ms: std::sync::atomic::AtomicI64,
     /// Last alert-visual state pushed to the tray (avoids repainting).
     pub tray_alerting: std::sync::atomic::AtomicBool,
     /// Cached payment-method discovery: key -> (fetched_at_ms, methods).
@@ -67,6 +71,7 @@ impl AppState {
             alert: Mutex::new(AlertRuntime::default()),
             save_lock: Mutex::new(()),
             last_hidden_ms: std::sync::atomic::AtomicI64::new(0),
+            last_shown_ms: std::sync::atomic::AtomicI64::new(0),
             tray_alerting: std::sync::atomic::AtomicBool::new(false),
             pay_cache: Mutex::new(HashMap::new()),
         }

@@ -1,6 +1,6 @@
 [package]
 name = "crossrate"
-version = "0.1.1"
+version = "0.1.2"
 description = "CrossRate - Binance P2P cross-rate monitor for macOS"
 edition = "2021"
 rust-version = "1.77.2"

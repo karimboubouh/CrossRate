@@ -20,6 +20,16 @@ pub async fn run(app: AppHandle) {
     // Give the webview a moment to attach its event listeners.
     tokio::time::sleep(Duration::from_millis(500)).await;
     let mut consecutive_failures: u32 = 0;
+    // One-off diagnostics: where the status item actually sits.
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    if let Some(rect) = tray::rect(&app) {
+        crate::util::log_line(&format!(
+            "status item rect: pos={:?} size={:?}",
+            rect.position, rect.size
+        ));
+    } else {
+        crate::util::log_line("status item rect unavailable");
+    }
 
     loop {
         let started = Instant::now();
