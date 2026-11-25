@@ -28,6 +28,9 @@ pub struct AppState {
     pub alert: Mutex<AlertRuntime>,
     /// Serialises settings writes so concurrent saves cannot interleave.
     pub save_lock: Mutex<()>,
+    /// When the popup last hid itself because it lost focus (ms since epoch).
+    /// A tray click right after that is a toggle-off, not a reopen.
+    pub last_hidden_ms: std::sync::atomic::AtomicI64,
     /// Last alert-visual state pushed to the tray (avoids repainting).
     pub tray_alerting: std::sync::atomic::AtomicBool,
     /// Cached payment-method discovery: key -> (fetched_at_ms, methods).
@@ -63,6 +66,7 @@ impl AppState {
             fx: RwLock::new(FxState::default()),
             alert: Mutex::new(AlertRuntime::default()),
             save_lock: Mutex::new(()),
+            last_hidden_ms: std::sync::atomic::AtomicI64::new(0),
             tray_alerting: std::sync::atomic::AtomicBool::new(false),
             pay_cache: Mutex::new(HashMap::new()),
         }

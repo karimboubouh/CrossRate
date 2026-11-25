@@ -41,6 +41,10 @@ export const api = {
     return invoke<{ accentLight: string; accentDark: string; dark: boolean }>("get_accent");
   },
 
+  async getVersion(): Promise<string> {
+    return invoke<string>("app_version");
+  },
+
   async listFiats(): Promise<FiatInfo[]> {
     return invoke<FiatInfo[]>("list_fiats");
   },

@@ -177,6 +177,7 @@ export function SettingsPanel({
   error,
   initialTab,
   onEdit,
+  version,
 }: {
   settings: Settings;
   fiats: FiatInfo[];
@@ -187,6 +188,7 @@ export function SettingsPanel({
   error: string | null;
   initialTab?: string;
   onEdit?: () => void;
+  version?: string;
 }) {
   const startTab: Tab = TABS.some((item) => item.id === initialTab)
     ? (initialTab as Tab)
@@ -577,6 +579,7 @@ export function SettingsPanel({
         <button type="button" className="btn ghost" onClick={onClose}>
           Cancel
         </button>
+        {version ? <span className="version-tag">v{version}</span> : null}
         <span className="spacer" />
         <button
           type="button"

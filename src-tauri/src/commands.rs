@@ -120,6 +120,11 @@ pub fn get_accent() -> Appearance {
 }
 
 #[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
 pub fn list_fiats() -> Vec<FiatInfo> {
     fiat_list()
 }

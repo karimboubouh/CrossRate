@@ -1132,6 +1132,13 @@ select {
   font-size: 11px;
 }
 
+.version-tag {
+  font-size: 10px;
+  color: var(--label-4);
+  font-variant-numeric: tabular-nums;
+  margin-left: 2px;
+}
+
 .settings-footer .spacer {
   flex: 1;
 }

@@ -18,6 +18,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [fiats, setFiats] = useState<FiatInfo[]>([]);
+  const [version, setVersion] = useState<string>("");
   const [view, setView] = useState<"dashboard" | "settings">(
     previewParams?.get("scenario") === "settings" ? "settings" : "dashboard",
   );
@@ -105,12 +106,18 @@ export default function App() {
     };
 
     setLoadError(null);
-    void Promise.all([api.getSettings(), api.getSnapshot(), api.listFiats()])
-      .then(([nextSettings, nextSnapshot, nextFiats]) => {
+    void Promise.all([
+      api.getSettings(),
+      api.getSnapshot(),
+      api.listFiats(),
+      api.getVersion().catch(() => ""),
+    ])
+      .then(([nextSettings, nextSnapshot, nextFiats, nextVersion]) => {
         if (disposed) return;
         adoptSettings(nextSettings);
         if (nextSnapshot) adoptSnapshot(nextSnapshot);
         setFiats(nextFiats);
+        setVersion(nextVersion);
       })
       .catch((err) => {
         if (disposed) return;
@@ -286,6 +293,7 @@ export default function App() {
           fiats={fiats}
           saving={saving}
           error={error}
+          version={version}
           initialTab={previewParams?.get("tab") ?? undefined}
           onEdit={() => setError(null)}
           onSave={(next) => void handleSave(next)}

@@ -28,15 +28,44 @@ pub fn float_over_full_screen(window: &tauri::WebviewWindow) {
     // main thread (setup, tray and menu handlers all run there) and the pointer
     // stays valid for the window's lifetime.
     unsafe {
-        use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+        use objc2_app_kit::{
+            NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior,
+        };
         let ns_window: &NSWindow = &*(handle as *const NSWindow);
         let behavior = ns_window.collectionBehavior()
             | NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::FullScreenAuxiliary
             | NSWindowCollectionBehavior::Stationary;
         ns_window.setCollectionBehavior(behavior);
+        // Float above a full-screen app's window (which sits at normal level).
+        ns_window.setLevel(NSStatusWindowLevel);
+
+        crate::util::log_line(&format!(
+            "window: level={} canJoinAllSpaces={} fullScreenAuxiliary={} stationary={}",
+            ns_window.level(),
+            behavior.contains(NSWindowCollectionBehavior::CanJoinAllSpaces),
+            behavior.contains(NSWindowCollectionBehavior::FullScreenAuxiliary),
+            behavior.contains(NSWindowCollectionBehavior::Stationary),
+        ));
     }
 }
+
+/// Show the panel even when CrossRate is not the active app — required to appear
+/// on top of a full-screen Space without stealing the Space from the user.
+#[cfg(target_os = "macos")]
+fn order_front_regardless(window: &tauri::WebviewWindow) {
+    if let Ok(handle) = window.ns_window() {
+        // SAFETY: main-thread call on the window's own NSWindow.
+        unsafe {
+            use objc2_app_kit::NSWindow;
+            let ns_window: &NSWindow = &*(handle as *const NSWindow);
+            ns_window.orderFrontRegardless();
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn order_front_regardless(_window: &tauri::WebviewWindow) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn float_over_full_screen(_window: &tauri::WebviewWindow) {}
@@ -104,7 +133,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             } = event
             {
                 let app = tray.app_handle();
-                show_popup_at(app, position);
+                toggle_popup(app, position);
             }
         })
         .build(app)?;
@@ -169,6 +198,36 @@ fn place_and_show(window: &tauri::WebviewWindow, x: f64, y: f64, origin: &str) {
     )));
     let _ = window.show();
     let _ = window.set_focus();
+    // Re-apply after `show`: AppKit can reset collection behaviour on order-in.
+    float_over_full_screen(window);
+    order_front_regardless(window);
+}
+
+/// Tray click behaves like a native popover button: open, and close if already
+/// open. Clicking the status item also makes the panel lose focus first (which
+/// hides it), so a click arriving immediately after that hide must not reopen.
+pub fn toggle_popup(app: &AppHandle, position: tauri::PhysicalPosition<f64>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    if window.is_visible().unwrap_or(false) {
+        let _ = window.hide();
+        return;
+    }
+
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        let hidden_at = state
+            .last_hidden_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let just_hid = hidden_at > 0 && crate::util::now_ms() - hidden_at < 400;
+        if just_hid {
+            // This very click is what dismissed the panel; stay closed.
+            return;
+        }
+    }
+
+    show_popup_at(app, position);
 }
 
 /// Tray click: the click event carries the icon's exact position, so use it

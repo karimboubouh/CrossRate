@@ -35,6 +35,7 @@ pub fn run() {
             commands::set_window_height,
             commands::set_appearance,
             commands::get_accent,
+            commands::app_version,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -88,6 +89,11 @@ pub fn run() {
                     tauri::WindowEvent::Focused(false) => {
                         // Hidden automatically like a native popover.
                         if std::env::var("CROSSRATE_NO_AUTOHIDE").is_err() {
+                            if let Some(state) = window_handle.try_state::<state::AppState>() {
+                                state
+                                    .last_hidden_ms
+                                    .store(crate::util::now_ms(), std::sync::atomic::Ordering::Relaxed);
+                            }
                             let _ = window_handle.hide();
                         }
                     }

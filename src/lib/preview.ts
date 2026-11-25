@@ -36,6 +36,7 @@ export function installPreview(api: Api): void {
     accentDark: "#0a84ff",
     dark: false,
   });
+  target.getVersion = async () => "0.1.1-preview";
   target.listFiats = async () => mockFiats;
   target.openAdvertiser = async () => {};
   target.playSound = async () => {};
